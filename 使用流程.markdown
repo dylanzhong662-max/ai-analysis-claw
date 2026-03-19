@@ -1,0 +1,31 @@
+## 使用流程
+
+**第一步：安装依赖**                                                                                                                     
+
+ Pip3 install yfinance pandas numpy                                                                                                             
+
+​                                                                                                                             
+
+ **第二步：运行脚本**                                                                                                                     
+
+ cd ~/Documents                                                                                                                      
+
+ Python3 gold_analysis.py                                                                                                                  
+
+​                                                                                                                              
+
+ **第三步：粘贴到 Claude.ai**                                                                                                                 
+
+​                                                                                                                              
+
+ 脚本会同时：                                                                                                                       
+
+ \- 在终端打印格式化好的提示词                                                                                                               
+
+ \- 保存到 gold_prompt_output.txt                                                                                                              
+
+​                                                                                                                             
+
+ 将输出内容粘贴到 Claude.ai，前面加上你完善后的大宗商品分析提示词，就能得到分析结果。 
+
+![image-20260319195659000](/Users/zhongsongzhi/Library/Application Support/typora-user-images/image-20260319195659000.png)
