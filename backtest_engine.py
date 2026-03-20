@@ -477,30 +477,67 @@ def call_claude(prompt: str, model: str) -> dict:
     return {}
 
 
+def _extract_json_by_braces(text: str) -> str | None:
+    """
+    通过大括号计数提取第一个完整的 JSON 对象字符串。
+    正确处理字符串内的转义字符，避免正则贪婪匹配截断问题。
+    """
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_string = False
+    escape_next = False
+    for i, ch in enumerate(text[start:], start):
+        if escape_next:
+            escape_next = False
+            continue
+        if ch == "\\" and in_string:
+            escape_next = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None
+
+
 def parse_signal(raw: str) -> dict:
     """从 LLM 输出中提取 JSON，兼容 DeepSeek R1 的 <think> 标签和 markdown 代码块。"""
-    # 去除 DeepSeek R1 的 <think>...</think> 推理过程
+    if not raw:
+        return {}
+
+    # 去除 DeepSeek R1 的 <think>...</think> 推理过程（含嵌套/多段）
     raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
 
-    # 直接解析
+    # 1. 直接解析（模型只输出纯 JSON 时）
     try:
-        return json.loads(raw.strip())
+        return json.loads(raw)
     except json.JSONDecodeError:
         pass
 
-    # 提取 ```json ... ``` 代码块（贪婪匹配，支持嵌套 {}）
-    match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", raw, re.DOTALL)
-    if match:
+    # 2. 从 ```json ... ``` 或 ``` ... ``` 代码块中提取
+    code_block = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", raw)
+    if code_block:
+        candidate = code_block.group(1).strip()
+        extracted = _extract_json_by_braces(candidate) or candidate
         try:
-            return json.loads(match.group(1))
+            return json.loads(extracted)
         except json.JSONDecodeError:
             pass
 
-    # 宽松匹配最外层 {}
-    match = re.search(r"\{.*\}", raw, re.DOTALL)
-    if match:
+    # 3. 大括号计数提取（最稳健，处理 JSON 前后有多余文本的情况）
+    extracted = _extract_json_by_braces(raw)
+    if extracted:
         try:
-            return json.loads(match.group(0))
+            return json.loads(extracted)
         except json.JSONDecodeError:
             pass
 
@@ -954,19 +991,19 @@ if __name__ == "__main__":
         epilog="""
 使用示例：
   # 【无需 API Key】生成所有 Prompt 文件，手动粘贴到 Claude.ai
-  python3 backtest_engine.py --generate --start 2024-01-01 --end 2024-12-31 --step 5
+  python3 backtest_engine.py --generate --start 2025-01-01 --end 2025-12-31 --step 5
 
   # 【无需 API Key】评估已保存的 Claude.ai 响应，计算绩效
   python3 backtest_engine.py --evaluate
 
   # 【需要 API Key】全自动回测
-  python3 backtest_engine.py --start 2024-01-01 --end 2024-12-31 --step 5
+  python3 backtest_engine.py --start 2025-01-01 --end 2025-12-31 --step 5
         """
     )
     parser.add_argument("--generate",  action="store_true",       help="生成 Prompt 文件到 backtest_prompts/（无需 API Key）")
     parser.add_argument("--evaluate",  action="store_true",       help="评估 backtest_responses/ 下的响应文件（无需 API Key）")
-    parser.add_argument("--start",     default="2024-01-01",      help="回测开始日期 YYYY-MM-DD")
-    parser.add_argument("--end",       default="2024-12-31",      help="回测结束日期 YYYY-MM-DD")
+    parser.add_argument("--start",     default="2025-01-01",      help="回测开始日期 YYYY-MM-DD")
+    parser.add_argument("--end",       default="2025-12-31",      help="回测结束日期 YYYY-MM-DD")
     parser.add_argument("--step",      default=5,   type=int,     help="每隔N个交易日触发一次 (默认5)")
     parser.add_argument("--model",     default="deepseek-reasoner", help="DeepSeek 模型 ID（仅全自动模式使用）")
     parser.add_argument("--dry-run",    action="store_true",      help="只验证数据和 Prompt，不调用 API")
