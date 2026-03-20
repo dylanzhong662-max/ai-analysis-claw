@@ -12,7 +12,9 @@
 
 ​                               
 
- cd ~/Desktop/大模型金融分析                                                       
+ cd ~/Desktop/大模型金融分析
+
+ python gold_analysis.py --api                                                       
 
  python3 gold_analysis.py                                                         
 

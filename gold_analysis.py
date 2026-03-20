@@ -11,8 +11,19 @@ import pandas as pd
 import numpy as np
 import urllib3
 import os
+import argparse
+import httpx
+from anthropic import Anthropic
 from curl_cffi import requests as curl_requests
 from datetime import datetime, timedelta
+
+# ─────────────────────────────────────────────
+# Anthropic API 配置（方案二：直接调用 Claude API）
+# 优先读取环境变量，未设置则使用下方默认值
+# ─────────────────────────────────────────────
+ANTHROPIC_BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://api.openai-proxy.org/anthropic")
+ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY",  "ANTHROPIC_API_KEY_REMOVED")
+ANTHROPIC_MODEL    = "claude-sonnet-4-6"
 
 # 禁用 SSL 警告（企业网络/VPN 自签名证书环境）
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -675,10 +686,51 @@ BB %B:         [{daily_bb_pctb}]
 
 
 # ─────────────────────────────────────────────
+# Anthropic API 调用（方案二）
+# ─────────────────────────────────────────────
+
+def call_claude_api(prompt: str) -> str:
+    """
+    直接调用 Anthropic Claude API 获取分析结果。
+    使用 ANTHROPIC_BASE_URL / ANTHROPIC_API_KEY / ANTHROPIC_MODEL 配置。
+    """
+    print(f"\n正在调用 Claude API（模型: {ANTHROPIC_MODEL}）...")
+    client = Anthropic(
+        base_url=ANTHROPIC_BASE_URL,
+        api_key=ANTHROPIC_API_KEY,
+        http_client=httpx.Client(verify=False),
+    )
+    message = client.messages.create(
+        model=ANTHROPIC_MODEL,
+        max_tokens=4096,
+        messages=[
+            {
+                "role": "user",
+                "content": prompt,
+            }
+        ],
+    )
+    # 提取文本内容
+    result = ""
+    for block in message.content:
+        if hasattr(block, "text"):
+            result += block.text
+    return result
+
+
+# ─────────────────────────────────────────────
 # 主程序
 # ─────────────────────────────────────────────
 
 def main():
+    parser = argparse.ArgumentParser(description="黄金分析脚本")
+    parser.add_argument(
+        "--api",
+        action="store_true",
+        help="方案二：直接调用 Anthropic Claude API 获取分析结果（默认：方案一，生成提示词文件）",
+    )
+    args = parser.parse_args()
+
     daily, weekly = fetch_gold_data()
 
     print("\n正在获取宏观跨资产数据...")
@@ -695,15 +747,29 @@ def main():
 
     prompt = build_prompt(daily, weekly, perf_metrics=perf_metrics, macro=macro)
 
+    # ── 方案一：保存提示词文件（默认）──
     output_path = "gold_prompt_output.txt"
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(prompt)
+    print(f"\n提示词已保存到文件: {output_path}")
 
-    print("\n" + "=" * 60)
-    print(prompt)
-    print("=" * 60)
-    print(f"\n已保存到文件: {output_path}")
-    print("请将上方内容复制粘贴到 Claude.ai 对话框，即可获得分析结果。")
+    if args.api:
+        # ── 方案二：直接调用 Claude API ──
+        analysis = call_claude_api(prompt)
+        api_output_path = "gold_api_output.txt"
+        with open(api_output_path, "w", encoding="utf-8") as f:
+            f.write(analysis)
+        print("\n" + "=" * 60)
+        print(analysis)
+        print("=" * 60)
+        print(f"\nAPI 分析结果已保存到文件: {api_output_path}")
+    else:
+        # ── 方案一：打印提示词供手动使用 ──
+        print("\n" + "=" * 60)
+        print(prompt)
+        print("=" * 60)
+        print("\n请将上方内容复制粘贴到 Claude.ai 对话框，即可获得分析结果。")
+        print("或使用 --api 参数直接调用 Claude API：python gold_analysis.py --api")
 
 
 if __name__ == "__main__":
