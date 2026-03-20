@@ -27,12 +27,17 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import anthropic
+import os
+import tempfile
+from openai import OpenAI
 import numpy as np
 import pandas as pd
 import urllib3
 import yfinance as yf
 from curl_cffi import requests as curl_requests
+
+# 修复 yfinance SQLite 时区缓存冲突（OperationalError: unable to open database file）
+yf.set_tz_cache_location(tempfile.mkdtemp())
 
 # 复用现有脚本的指标计算函数
 from gold_analysis import calc_ema, calc_macd, calc_rsi, calc_atr, fmt_series, compute_indicators
@@ -54,18 +59,213 @@ PERF_FILE     = OUTPUT_DIR / "performance.csv"
 EVAL_DAYS    = 15    # 最长持仓天数（对应策略3-15天）
 LOOKBACK_DAYS = 180  # 每个回测节点向前取多少天的数据
 
-# 防时间泄漏的 System Prompt
-ANTI_LEAK_SYSTEM = """你是一个严格的量化交易信号生成器。
+# System Prompt（来自 analyz_data.markdown）
+ANTI_LEAK_SYSTEM = """# ROLE DEFINITION
 
-核心规则（必须严格遵守）：
-1. 你的分析【必须且只能】基于用户提供的价格序列和技术指标数据
-2. 你【绝对不能】使用任何关于该数据时间窗口之外发生的事件的知识
-3. 你【不得】推断或猜测当前的具体日期，也不得基于猜测日期调整分析结论
-4. 你【不得】说"我知道此后发生了..."或"根据当时的宏观背景..."等
-5. dxy_assessment / macro_catalyst 字段：只填写可以从价格走势本身推断的内容，不引用外部新闻事件
-6. 如果你无法仅凭所提供的数据做出高置信度判断，action 必须返回 "no_trade"
+You are a Senior Macro Hedge Fund Strategist specializing in cross-asset swing trading.
 
-输出格式：必须返回有效的 JSON，且仅返回 JSON，不包含任何其他说明文字。"""
+Your mission: Analyze BTC, Gold (XAU), Crude Oil (WTI), and Aluminum (LME) to generate
+high-probability daily or weekly trading signals with disciplined risk management.
+
+---
+
+# TRADING ENVIRONMENT & ASSET UNIVERSE
+
+- **Assets**: BTC (Digital Gold), XAU/USD (Safe Haven), WTI Crude Oil (Energy/Macro), Aluminum (Industrial/Inflation)
+- **Timeframe Focus**: Daily (D1) for entry/exit; Weekly (W1) for trend bias
+- **Decision Frequency**: Once per Day or Once per Week
+- **Objective**: Identify "Regime Shifts" and "Trend Continuations" — NOT scalping noise
+- **Position Duration**: Expected hold time is 3 to 15 days
+
+---
+
+# DATA INTERPRETATION GUIDELINES
+
+## ⚠️ CRITICAL: DATA ORDERING
+
+**ALL price and indicator series are ordered: OLDEST → NEWEST**
+
+**The LAST element in each array is the MOST RECENT data point.**
+
+**The FIRST element is the OLDEST data point.**
+
+Do NOT confuse the order. This is a common error that leads to incorrect decisions.
+
+## Technical Indicators Provided
+
+- **EMA (50/200-day)**: Golden Cross (50>200) = Bullish regime; Death Cross (50<200) = Bearish regime
+- **MACD**: Positive = Bullish momentum; Negative = Bearish momentum; Histogram narrowing = exhaustion
+- **RSI — Regime-Dependent Interpretation** (this distinction is critical):
+  - **In a Trending regime**: RSI >70 = **Momentum confirmation**, NOT a reason to avoid. Strong trends routinely hold RSI >70 for weeks or months. RSI >85 = note the extension, but do NOT auto-reject a long. Only act on RSI in a trending market if you see clear **bearish divergence** (price makes new high but RSI makes lower high).
+  - **In a Mean-Reverting or Choppy regime**: RSI >70 = Overbought, high reversal risk, avoid new longs. RSI <30 = Oversold, high bounce risk, avoid new shorts.
+  - **⚠️ Common mistake**: Applying mean-reversion RSI logic inside a trending market. A trending market can stay "overbought" for an entire quarter. Refusing to go long solely because RSI >70 in a Trending regime = missing the entire move.
+- **ATR (14-day)**: Sets appropriate stop distance for daily swing trades
+- **Volume**: Rising price + Rising volume = Confirmed trend; Rising price + Falling volume = suspect move. Note: futures volume data can have anomalies around contract rollover dates — do NOT use a single day's abnormally low volume as the sole reason for no_trade.
+
+## Macro Context Provided
+
+- **DXY (US Dollar Index)**: Inverse correlation — DXY up = Commodities/BTC usually under pressure
+- **Gold**: Real yields (10Y TIPS), CPI data, geopolitical risk premium
+- **Oil**: OPEC+ output decisions, inventory draws (EIA/API), global demand signals
+- **Aluminum**: China PMI, LME inventory levels, energy cost of smelting
+- **BTC**: Global M2 money supply, ETF inflow/outflow data, risk sentiment
+
+---
+
+# ANALYSIS FRAMEWORK (MULTI-DIMENSIONAL)
+
+## 1. Technical Context (The "Chart")
+
+- **Primary Trend**: 50-day and 200-day EMA for Golden/Death Cross confirmation
+- **Support/Resistance**: Previous week's High/Low, multi-month consolidation zones
+- **Momentum**: Weekly RSI divergence + Daily MACD for trend exhaustion signals
+- **Volatility**: ATR-based stop placement for daily swing positions
+
+## 2. Macro & Inter-market Analysis (The "Why")
+
+- Determine if the market is in **Risk-On** or **Risk-Off** mode
+- Assess DXY trajectory and its directional pressure on each asset
+- Identify dominant macro catalyst for each asset (see above)
+
+## 3. Regime Classification (Per Asset)
+
+Before deciding action, classify the current regime and apply the matching trading logic:
+
+| Regime | Signals | RSI Rule | Trading Approach |
+|--------|---------|----------|-----------------|
+| **Trending** | Price consistently above/below EMA20&50, MACD aligned with trend | RSI overbought = momentum confirmation; only bearish **divergence** warrants caution | Enter on pullbacks to EMA or breakouts; ride the trend; set wide targets |
+| **Mean-Reverting** | Price stretched from EMA then snapping back, RSI at extremes then reverting | RSI >70 = avoid longs; RSI <30 = avoid shorts | Fade extremes; tight stops; expect reversion to EMA |
+| **Choppy/Noise** | Price oscillating around flat EMA, MACD near zero, no clear catalyst | RSI neutral, not helpful | **no_trade** — wait for regime to clarify |
+
+⚠️ **Regime determines RSI logic — not the other way around.** Classify regime first, then apply the matching RSI rule. Do NOT default to Mean-Reverting logic simply because RSI is high.
+
+---
+
+# ACTION SPACE DEFINITION
+
+For each asset, you must choose exactly ONE of these three states:
+
+1. **long**: Enter or hold a bullish position
+   - **Trending regime**: Golden Cross, bullish MACD, price above EMA — go long even if RSI is high; use pullbacks to EMA as entry
+   - **Mean-Reverting regime**: RSI oversold (<35), price near key support, MACD turning up
+
+2. **short**: Enter or hold a bearish position
+   - **Trending regime**: Death Cross, bearish MACD, price below EMA — go short even if RSI is low; use bounces to EMA as entry
+   - **Mean-Reverting regime**: RSI overbought (>65), price near key resistance, MACD turning down
+
+3. **no_trade**: No position recommended this period
+   - Choppy regime (price oscillating around flat EMA, MACD near zero)
+   - Conflicting regime signals (e.g., daily Trending but weekly Mean-Reverting with no resolution)
+   - Cannot find stop placement ≥ 0.8× ATR-14 that still gives R:R ≥ 2.0
+
+**Default to `no_trade` when in doubt — but do NOT default to no_trade simply because RSI is above 70 in a Trending market.**
+
+---
+
+# POSITION SIZING FRAMEWORK
+
+## Sizing by Conviction (bias_score)
+
+- **0.0–0.4** (Low): Risk 0.5–1.0% of equity — Consider `no_trade` unless setup is clear
+- **0.4–0.6** (Moderate): Risk 1.0–1.5% of equity — Standard sizing
+- **0.6–0.8** (High): Risk 1.5–2.0% of equity — Full allocation
+- **0.8–1.0** (Very High): Cap at 2.0% — Beware overconfidence
+
+---
+
+# RISK MANAGEMENT PROTOCOL (MANDATORY)
+
+For EVERY `long` or `short` decision, you MUST specify:
+
+1. **entry_zone** (string): Price range for entry — Longs: near support; Shorts: near resistance
+2. **profit_target** (float): Specific price level to exit with profit. Must achieve R:R ≥ 2.0 measured from **current_price** (the last close in the data), NOT from entry_zone.
+3. **stop_loss** (float): Placed beyond Market Structure. Must be at least **0.8× ATR-14** away from current_price.
+4. **invalidation_condition** (string): Objective market signal that voids the thesis
+5. **bias_score** (float, 0–1): Conviction level
+6. **risk_reward_ratio** (float): Calculate using **current_price** as the reference entry:
+   - Long:  `(profit_target − current_price) / (current_price − stop_loss)`
+   - Short: `(current_price − profit_target) / (stop_loss − current_price)`
+
+⚠️ **MANDATORY SELF-CHECK** — run this mentally before writing your JSON output:
+
+| Check | Long | Short |
+|-------|------|-------|
+| Direction | profit_target > current_price > stop_loss | stop_loss > current_price > profit_target |
+| R:R | (profit_target − current_price) / (current_price − stop_loss) ≥ 2.0 | (current_price − profit_target) / (stop_loss − current_price) ≥ 2.0 |
+| Stop distance | current_price − stop_loss ≥ 0.8 × ATR-14 | stop_loss − current_price ≥ 0.8 × ATR-14 |
+
+**If ANY check fails → set action = "no_trade", profit_target = null, stop_loss = null, risk_reward_ratio = null.**
+
+The actual trade entry will be at the **next day's opening price**, which may differ from current_price. By anchoring your R:R to current_price, you ensure the trade remains valid regardless of minor gap-up/gap-down opens.
+
+---
+
+# OUTPUT FORMAT (JSON)
+
+Return your analysis as a **valid JSON object** with these exact fields:
+
+```json
+{
+  "period": "Daily" | "Weekly",
+  "overall_market_sentiment": "Risk-On" | "Risk-Off" | "Neutral",
+  "dxy_assessment": "<brief DXY trend and its pressure on assets>",
+  "asset_analysis": [
+    {
+      "asset": "BTC" | "GOLD" | "OIL" | "ALU",
+      "regime": "Trending" | "Mean-Reverting" | "Choppy",
+      "action": "long" | "short" | "no_trade",
+      "bias_score": <float 0.0–1.0>,
+      "entry_zone": "<price range string>",
+      "profit_target": <float | null if no_trade>,
+      "stop_loss": <float | null if no_trade>,
+      "risk_reward_ratio": <float | null if no_trade>,
+      "invalidation_condition": "<string | 'N/A' if no_trade>",
+      "macro_catalyst": "<concise explanation of macro driving the view>",
+      "technical_setup": "<key indicator alignment>",
+      "justification": "<max 300 characters — synthesize technical + macro>"
+    }
+  ]
+}
+```
+
+**Output Validation Rules**
+
+- profit_target must be **above** current_price for long, **below** current_price for short
+- stop_loss must be **below** current_price for long, **above** current_price for short
+- risk_reward_ratio = |profit_target − current_price| / |current_price − stop_loss| must be ≥ 2.0; if < 2.0, change action to no_trade
+- stop_loss distance from current_price must be ≥ 0.8 × ATR-14 (stops tighter than this will be noise-triggered)
+- When action is no_trade: set profit_target, stop_loss, risk_reward_ratio to null
+- justification must be concise (max 300 characters)
+- bias_score for no_trade should typically be < 0.4
+
+---
+
+# COMMON PITFALLS TO AVOID
+
+- ⚠️ **Fighting the Dollar**: Don't go long commodities when DXY is in a strong uptrend
+- ⚠️ **Ignoring ATR**: Never set stops tighter than 1x ATR — will get stopped out by noise
+- ⚠️ **Chasing breakouts**: Wait for retest of broken level before entering, if possible
+- ⚠️ **Overconfidence in macro**: Macro is a direction, not a timing tool — respect technicals for entry
+- ⚠️ **Ignoring regime**: A valid signal in a trending market is invalid in a choppy market
+- ⚠️ **RSI paralysis in a trend**: The single most costly mistake — refusing to go long in a Trending regime because RSI is above 70. In 2024, gold's RSI stayed above 70 for weeks during its biggest moves. A trader who waited for RSI to "reset" missed the entire +30% run. In a Trending regime, high RSI is your friend, not your enemy.
+- ⚠️ **Volume anomaly as veto**: Single-day low volume on a futures contract is often a data artifact (contract rollover, holiday session). Do NOT use one day's low volume as the sole reason for no_trade in a Trending regime.
+
+---
+
+# FINAL INSTRUCTIONS
+
+1. Classify **overall market sentiment** (Risk-On/Off/Neutral) before analyzing individual assets
+2. Assess **DXY direction** first — it sets the macro backdrop for all four assets
+3. For each asset: Regime → Action → Sizing → Levels → Invalidation (in this order)
+4. Verify **risk_reward_ratio ≥ 2.0** before finalizing any long/short recommendation
+5. Ensure your JSON output is **valid and complete** — all fields must be present
+6. Provide **honest bias scores** — do not overstate conviction
+
+Remember: In swing trading, **patience is edge**. A well-reasoned no_trade is often the highest-quality output.
+
+Now, analyze the market data provided below and make your trading decision.
+
+**IMPORTANT**: You must ONLY analyze based on the price/indicator data provided. Do NOT use knowledge of events outside the provided data window. Do NOT infer or guess the specific date. Output ONLY valid JSON, no other text."""
 
 
 # ─────────────────────────────────────────────
@@ -76,25 +276,36 @@ def _make_session():
     return curl_requests.Session(impersonate="chrome", verify=False)
 
 
+def _download_with_retry(ticker, start, end, interval, retries=3) -> pd.DataFrame:
+    """带重试的 yfinance 下载，每次重建 session 避免连接复用问题。"""
+    for attempt in range(retries):
+        try:
+            session = _make_session()
+            df = yf.download(
+                ticker, start=start, end=end,
+                interval=interval, auto_adjust=True, progress=False, session=session
+            )
+            if df is not None and not df.empty:
+                return df
+        except Exception as e:
+            if attempt < retries - 1:
+                time.sleep(3 * (attempt + 1))
+            else:
+                print(f"  [数据获取失败] {ticker} {start}~{end}: {e}")
+    return pd.DataFrame()
+
+
 def fetch_data_up_to(date: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     严格截断：只获取 date 当日及之前的历史数据，绝不包含未来数据。
     yfinance 的 end 参数是 exclusive，所以传 date+1。
     """
-    end_dt   = pd.Timestamp(date)
-    end_str  = (end_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+    end_dt    = pd.Timestamp(date)
+    end_str   = (end_dt + timedelta(days=1)).strftime("%Y-%m-%d")
     start_str = (end_dt - timedelta(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
 
-    session = _make_session()
-
-    daily = yf.download(
-        TICKER, start=start_str, end=end_str,
-        interval="1d", auto_adjust=True, progress=False, session=session
-    )
-    weekly = yf.download(
-        TICKER, start=start_str, end=end_str,
-        interval="1wk", auto_adjust=True, progress=False, session=session
-    )
+    daily  = _download_with_retry(TICKER, start_str, end_str, "1d")
+    weekly = _download_with_retry(TICKER, start_str, end_str, "1wk")
     return daily, weekly
 
 
@@ -103,11 +314,9 @@ def fetch_future_data(date: str) -> pd.DataFrame:
     start_str = (pd.Timestamp(date) + timedelta(days=1)).strftime("%Y-%m-%d")
     end_str   = (pd.Timestamp(date) + timedelta(days=(EVAL_DAYS + 5) * 2)).strftime("%Y-%m-%d")
 
-    session = _make_session()
-    df = yf.download(
-        TICKER, start=start_str, end=end_str,
-        interval="1d", auto_adjust=True, progress=False, session=session
-    )
+    df = _download_with_retry(TICKER, start_str, end_str, "1d")
+    if df.empty:
+        return df
     return df.iloc[: EVAL_DAYS + 5]
 
 
@@ -223,43 +432,13 @@ ATR-3:   {atr3_d}   vs.  ATR-14: {atr14_d}
 
 ---
 
-## 分析任务
+## Analysis Task
 
-请基于以上数据，按照大宗商品分析框架，完成以下任务：
+Using the framework defined in your system instructions, analyze the GOLD (XAU/USD) data above and produce your trading decision.
 
-1. 判断当前市场制度（Trending / Mean-Reverting / Choppy）
-2. 判断整体市场情绪（Risk-On / Risk-Off / Neutral）
-3. 分析 DXY 对黄金的潜在压力方向（只基于价格走势推断，不引用外部新闻）
-4. 针对黄金给出交易建议，严格按以下 JSON 格式输出：
+Follow the exact output format specified in your instructions. The asset_analysis array must contain an entry for asset "GOLD".
 
-```json
-{{
-  "period": "Daily",
-  "overall_market_sentiment": "Risk-On | Risk-Off | Neutral",
-  "dxy_assessment": "<仅基于价格数据推断的DXY方向>",
-  "asset_analysis": [
-    {{
-      "asset": "GOLD",
-      "regime": "Trending | Mean-Reverting | Choppy",
-      "action": "long | short | no_trade",
-      "bias_score": <0.0 到 1.0>,
-      "entry_zone": "<价格区间>",
-      "profit_target": <数字 或 null>,
-      "stop_loss": <数字 或 null>,
-      "risk_reward_ratio": <数字 或 null>,
-      "invalidation_condition": "<使该观点失效的具体信号>",
-      "macro_catalyst": "<只基于技术数据推断的驱动因素，不引用外部新闻>",
-      "technical_setup": "<指标信号综合描述>",
-      "justification": "<不超过200字的综合判断>"
-    }}
-  ]
-}}
-```
-
-注意：
-- profit_target 做多时必须高于入场价，做空时必须低于入场价
-- risk_reward_ratio 必须 ≥ 2.0，否则改为 no_trade
-- 当 action = no_trade 时，profit_target / stop_loss / risk_reward_ratio 填 null
+For other assets (BTC, OIL, ALU): no data is provided — set action to "no_trade" for those.
 """.strip()
 
     return prompt
@@ -270,40 +449,47 @@ ATR-3:   {atr3_d}   vs.  ATR-14: {atr14_d}
 # ─────────────────────────────────────────────
 
 def call_claude(prompt: str, model: str) -> dict:
-    """调用 Claude API，含3次重试逻辑。"""
-    client = anthropic.Anthropic()
+    """调用 DeepSeek API，含3次重试逻辑。"""
+    api_key = os.environ.get("DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY_REMOVED")
+    client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com/v1")
 
     for attempt in range(3):
         try:
-            message = client.messages.create(
+            message = client.chat.completions.create(
                 model=model,
-                max_tokens=1500,
-                system=ANTI_LEAK_SYSTEM,
-                messages=[{"role": "user", "content": prompt}]
+                max_tokens=4000,
+                messages=[
+                    {"role": "system", "content": ANTI_LEAK_SYSTEM},
+                    {"role": "user", "content": prompt},
+                ]
             )
-            return parse_signal(message.content[0].text)
-        except anthropic.RateLimitError:
-            wait = 30 * (attempt + 1)
-            print(f"  [限速] 等待 {wait}s 后重试...")
-            time.sleep(wait)
+            return parse_signal(message.choices[0].message.content)
         except Exception as e:
-            print(f"  [API错误] attempt {attempt+1}/3: {e}")
-            if attempt < 2:
-                time.sleep(5)
+            if "rate" in str(e).lower() or "429" in str(e):
+                wait = 30 * (attempt + 1)
+                print(f"  [限速] 等待 {wait}s 后重试...")
+                time.sleep(wait)
+            else:
+                print(f"  [API错误] attempt {attempt+1}/3: {e}")
+                if attempt < 2:
+                    time.sleep(5)
 
     return {}
 
 
 def parse_signal(raw: str) -> dict:
-    """从 LLM 输出中提取 JSON，兼容 markdown 代码块。"""
+    """从 LLM 输出中提取 JSON，兼容 DeepSeek R1 的 <think> 标签和 markdown 代码块。"""
+    # 去除 DeepSeek R1 的 <think>...</think> 推理过程
+    raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+
     # 直接解析
     try:
         return json.loads(raw.strip())
     except json.JSONDecodeError:
         pass
 
-    # 提取 ```json ... ``` 代码块
-    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
+    # 提取 ```json ... ``` 代码块（贪婪匹配，支持嵌套 {}）
+    match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", raw, re.DOTALL)
     if match:
         try:
             return json.loads(match.group(1))
@@ -373,6 +559,18 @@ def simulate_trade(signal: dict, future_df: pd.DataFrame, entry_date: str) -> di
     # 次日开盘入场
     entry_price = float(future_df.iloc[0]["Open"].squeeze())
     base["entry_price"] = entry_price
+
+    # 验证实际入场价的 R:R（防止因缺口导致止盈目标比入场价还近）
+    if action == "long":
+        risk   = entry_price - stop_loss
+        reward = profit_target - entry_price
+    else:
+        risk   = stop_loss - entry_price
+        reward = entry_price - profit_target
+
+    if risk <= 0 or reward <= 0 or (reward / risk) < 1.5:
+        base["exit_reason"] = "INVALID_RR"
+        return base
 
     for i, (_, row) in enumerate(future_df.iloc[:EVAL_DAYS].iterrows()):
         high  = float(row["High"].squeeze())
@@ -628,20 +826,40 @@ def run_evaluate():
 # 模式三：全自动回测（需要 ANTHROPIC_API_KEY）
 # ─────────────────────────────────────────────
 
-def run_backtest(start: str, end: str, step: int, model: str, dry_run: bool):
+def run_backtest(start: str, end: str, step: int, model: str, dry_run: bool,
+                 resume: bool = False, start_from: str = None):
     OUTPUT_DIR.mkdir(exist_ok=True)
 
     print(f"回测参数: {start} ~ {end}  |  step={step} 交易日  |  model={model}")
     print(f"评估持仓周期: {EVAL_DAYS} 天  |  dry_run={dry_run}")
+    if resume:
+        print(f"模式: resume（跳过已完成节点，合并到现有 signals.csv）")
+    if start_from:
+        print(f"从 {start_from} 开始回测")
     print("-" * 60)
 
     trading_days = get_trading_days(start, end, step)
-    print(f"共 {len(trading_days)} 个回测节点\n")
 
-    all_records = []
+    # --start-from：只处理该日期之后的节点
+    if start_from:
+        trading_days = [d for d in trading_days if d >= start_from]
 
-    for i, date in enumerate(trading_days):
-        print(f"[{i + 1:>3}/{len(trading_days)}] {date}", end="  ")
+    # --resume：跳过已在 signals.csv 中的日期
+    existing_records = []
+    done_dates: set[str] = set()
+    if resume and SIGNALS_FILE.exists():
+        existing_df = pd.read_csv(SIGNALS_FILE)
+        done_dates  = set(existing_df["date"].astype(str).tolist())
+        existing_records = existing_df.to_dict("records")
+        print(f"已加载 {len(done_dates)} 条现有记录，将跳过这些日期")
+
+    pending = [d for d in trading_days if d not in done_dates]
+    print(f"共 {len(trading_days)} 个回测节点，待处理 {len(pending)} 个\n")
+
+    all_records = list(existing_records)
+
+    for i, date in enumerate(pending):
+        print(f"[{i + 1:>3}/{len(pending)}] {date}", end="  ")
 
         # 1. 严格截断获取历史数据
         daily, weekly = fetch_data_up_to(date)
@@ -750,8 +968,10 @@ if __name__ == "__main__":
     parser.add_argument("--start",     default="2024-01-01",      help="回测开始日期 YYYY-MM-DD")
     parser.add_argument("--end",       default="2024-12-31",      help="回测结束日期 YYYY-MM-DD")
     parser.add_argument("--step",      default=5,   type=int,     help="每隔N个交易日触发一次 (默认5)")
-    parser.add_argument("--model",     default="claude-opus-4-6", help="Claude 模型 ID（仅全自动模式使用）")
-    parser.add_argument("--dry-run",   action="store_true",       help="只验证数据和 Prompt，不调用 API")
+    parser.add_argument("--model",     default="deepseek-reasoner", help="DeepSeek 模型 ID（仅全自动模式使用）")
+    parser.add_argument("--dry-run",    action="store_true",      help="只验证数据和 Prompt，不调用 API")
+    parser.add_argument("--resume",     action="store_true",      help="跳过已在 signals.csv 中的日期，新结果追加合并")
+    parser.add_argument("--start-from", default=None,             help="只处理该日期及之后的节点（格式 YYYY-MM-DD）")
     args = parser.parse_args()
 
     if args.generate:
@@ -760,9 +980,11 @@ if __name__ == "__main__":
         run_evaluate()
     else:
         run_backtest(
-            start   = args.start,
-            end     = args.end,
-            step    = args.step,
-            model   = args.model,
-            dry_run = args.dry_run,
+            start      = args.start,
+            end        = args.end,
+            step       = args.step,
+            model      = args.model,
+            dry_run    = args.dry_run,
+            resume     = args.resume,
+            start_from = args.start_from,
         )
