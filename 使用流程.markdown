@@ -40,9 +40,24 @@
  python3 gold_analysis.py --api --model claude-opus-4-6
 ```
 
-​                                                                                                                                                           
+Btc                                                                                                                                                       
 
- 脚本会自动完成以下工作：                                                         
+``` 
+python3 btc_analysis.py --api --model deepseek-reasoner
+```
+
+股票:
+
+```
+python3 tech_stock_analysis.py --ticker GOOGL --api --model deepseek-reasoner
+
+python tech_stock_analysis.py --ticker NVDA --api --model           
+      deepseek-reasoner
+```
+
+
+
+脚本会自动完成以下工作：                                                         
 
  \- 从 Yahoo Finance 拉取黄金日线/周线数据                                                 
 

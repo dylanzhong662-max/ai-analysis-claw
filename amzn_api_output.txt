@@ -1,0 +1,47 @@
+```json
+{
+  "period": "Weekly",
+  "stock_ticker": "AMZN",
+  "overall_market_sentiment": "Risk-Off",
+  "qqq_assessment": "QQQ在EMA50/200金叉支撑的长期牛市中，但短期（近8周）处于回调趋势（-6.4%）。该回调对AMZN形成向下的牵引力。",
+  "sector_assessment": "XLK相对QQQ有微弱超额（0.43%），显示科技板块略有韧性，但未形成显著领涨效应。在当前市场环境中属于略微有利因素。",
+  "macro_rate_environment": "10年期收益率趋势向上（4.391%，+3.5%近8周），且VIX处于恐慌区间。高利率环境和恐慌情绪对AMZN这类高成长、高估值股票构成明显估值压力。",
+  "earnings_risk_flag": false,
+  "earnings_days_away": 39,
+  "asset_analysis": [
+    {
+      "asset": "AMZN",
+      "regime": "Consolidation",
+      "action": "no_trade",
+      "bias_score": 0.35,
+      "entry_zone": "198.07 – 212.67",
+      "profit_target": null,
+      "stop_loss": null,
+      "risk_reward_ratio": null,
+      "invalidation_condition": "周线MACD转正并与价格形成底背离，同时价格强势突破并站稳周线EMA-20（约220）上方，且ADX回升至20以上确认趋势。",
+      "estimated_holding_weeks": null,
+      "price_action_analysis": {
+        "trend_structure": "价格结构矛盾：长期EMA50 > EMA200（金叉）预示牛市基础，但中短期价格已跌破EMA20和EMA50，呈空头排列。月线MACD虽为正值但已从高点回落，显示长期多头动能衰减。",
+        "momentum_signals": "周线MACD(-4.23)负值且持续扩大，空头动能主导。周线RSI(41.76)及RSI-7(35.72)处于中性偏弱区间，未显示超卖后的强烈反弹动力。随机指标低位运行，反映弱势。",
+        "volatility_context": "周线ATR为14.6，结合布林带带宽扩张（25.56%），表明价格波动性正在增加，但ADX(14.9)显示当前仍为无趋势的振荡期，扩张的带宽可能预示着趋势酝酿而非已形成。",
+        "volume_obv": "近6周OBV趋势下降，与价格在低位徘徊形成量价背离，暗示有机构资金在派发，并非积极的吸筹信号。",
+        "relative_strength_vs_qqq": "AMZN近20周跑输QQQ达-9.23%，显示其在该轮市场调整中属于相对弱势的科技股，尚未看到明显的相对强度回归迹象。"
+      },
+      "structured_analysis": {
+        "market_hierarchy_alignment": "L1（宏观利率&情绪）利空，L2（指数趋势）短期利空、长期中性，L3（板块）略微有利，L4（个股）显著利空（跑输）。L1与L4双重冲突，L2内部也有冲突，五层未对齐。",
+        "earnings_cycle_phase": "处于财报间隔中期（距下次财报39天），财报二元风险低，但盈利预期尚未成为当前价格的主要驱动因素。",
+        "sector_rotation_signal": "XLK略有超额，但对极度弱势的AMZN（跑输QQQ 9%）支持有限，板块轮动并未惠及该股。",
+        "regime_justification": "核心依据：1) ADX (14.9) < 20，明确趋势强度不足。2) 价格在长期EMA200支撑和中期EMA20/50压制之间窄幅波动（近期在$198-$213）。3) 成交量萎缩（OBV下降）配合价格振荡，符合盘整特征。"
+      },
+      "intelligence_analysis": {
+        "earnings_estimate_trend": "下季度及全年EPS预估均被上调，显示基本面预期持续改善，对长期bias_score构成潜在支撑。但短期价格与基本面出现背离。",
+        "analyst_consensus": "极度看多（94%买入评级），平均目标价$280.47，隐含高达36.6%的上行空间，表明机构对长期价值高度认可。",
+        "valuation_context": "远期市盈率（21.97x）相对于双位数的营收增速（12.6%）和改善的利润率而言，处于合理区间，并未明显高估。高ROE（22.3%）体现公司质量。",
+        "macro_catalyst": "核心宏观驱动在于美联储利率路径的预期变化。若未来通胀数据回落促使市场提前交易降息预期，成长股估值压力将显著缓解，可能成为AMZN重拾升势的关键。",
+        "competitive_intelligence": "AI云服务（AWS）是长期增长核心，面临来自微软、谷歌的激烈竞争。零售业务稳健但增长放缓。公司现金流充沛，持续投资于AI和物流基础设施以巩固护城河。"
+      },
+      "justification": "三维分析呈现显著矛盾。基本面和估值维度（分析师极度看好、EPS上调、估值合理）提供坚实的长期做多基础。然而，技术面和市场结构维度发出强烈的观望信号：价格处于无趋势的弱势盘整（ADX<20，Consolidation regime），周线空头动能明确（MACD<0），且跑输大盘和板块（相对弱势）。更关键的是，五层市场分析出现多重冲突（尤其宏观利率压力与个股弱势），根据规则将bias_score上限压制在0.5以下。当前价格虽接近长期均线（EMA200）和预计算多空分界区，但缺乏确认趋势反转的动量信号（如MACD底背离、RSI强势回升）和量能配合（OBV背离）。对于1-6个月的中长线持仓，当前并非理想的“让利润奔跑”的起点。建议耐心等待，直至出现技术面与基本面的共振信号，例如价格在关键支撑（如EMA200）企稳后，周线MACD开始收敛或转正，且相对强度开始改善。"
+    }
+  ]
+}
+```
