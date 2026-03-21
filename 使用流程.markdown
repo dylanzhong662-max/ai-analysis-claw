@@ -8,17 +8,39 @@
 
    
 
- 在项目目录下运行脚本：                                                          
+ 在项目目录下运行脚本：
 
-​                               
+```                                                          
+\# 只生成提示词文件（默认）
 
- cd ~/Desktop/大模型金融分析
+ python3 gold_analysis.py
 
- python gold_analysis.py --api                                                       
 
- python3 gold_analysis.py                                                         
 
-​                                                                      
+ \# 调用默认 Claude 模型
+
+ python3 gold_analysis.py --api
+
+
+
+ \# 调用 DeepSeek R1（推理模型）
+
+ python3 gold_analysis.py --api --model deepseek-reasoner
+
+
+
+ \# 调用 DeepSeek Chat
+
+ python3 gold_analysis.py --api --model deepseek-chat
+
+
+
+ \# 指定其他 Claude 模型
+
+ python3 gold_analysis.py --api --model claude-opus-4-6
+```
+
+​                                                                                                                                                           
 
  脚本会自动完成以下工作：                                                         
 
@@ -79,5 +101,3 @@
 ​                                                                      
 
  如果胜率低于 40% 或连续亏损 ≥ 2 次，提示词里会自动出现对应的警告，Claude 会据此收紧开仓标准 
-
-![image-20260319195659000](/Users/zhongsongzhi/Library/Application Support/typora-user-images/image-20260319195659000.png)

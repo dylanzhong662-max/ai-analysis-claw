@@ -14,6 +14,7 @@ import os
 import argparse
 import httpx
 from anthropic import Anthropic
+from openai import OpenAI
 from curl_cffi import requests as curl_requests
 from datetime import datetime, timedelta
 
@@ -24,6 +25,16 @@ from datetime import datetime, timedelta
 ANTHROPIC_BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://api.openai-proxy.org/anthropic")
 ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY",  "ANTHROPIC_API_KEY_REMOVED")
 ANTHROPIC_MODEL    = "claude-sonnet-4-6"
+
+# ─────────────────────────────────────────────
+# DeepSeek API 配置
+# ─────────────────────────────────────────────
+DEEPSEEK_API_KEY  = os.environ.get("DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY_REMOVED")
+DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
+
+# 支持的模型列表（用于 --model 参数提示）
+CLAUDE_MODELS   = {"claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"}
+DEEPSEEK_MODELS = {"deepseek-reasoner", "deepseek-chat"}
 
 # 禁用 SSL 警告（企业网络/VPN 自签名证书环境）
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -718,6 +729,34 @@ def call_claude_api(prompt: str) -> str:
     return result
 
 
+def call_deepseek_api(prompt: str, model: str) -> str:
+    """
+    通过 OpenAI 兼容接口调用 DeepSeek API，含3次重试逻辑。
+    支持 deepseek-reasoner（R1）和 deepseek-chat。
+    """
+    print(f"\n正在调用 DeepSeek API（模型: {model}）...")
+    client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
+
+    for attempt in range(3):
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                max_tokens=4000,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = response.choices[0].message.content or ""
+            # 去除 DeepSeek R1 的 <think>...</think> 推理过程
+            import re
+            raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+            return raw
+        except Exception as e:
+            print(f"  第 {attempt + 1} 次调用失败: {e}")
+            if attempt < 2:
+                import time
+                time.sleep(5)
+    return ""
+
+
 # ─────────────────────────────────────────────
 # 主程序
 # ─────────────────────────────────────────────
@@ -727,7 +766,17 @@ def main():
     parser.add_argument(
         "--api",
         action="store_true",
-        help="方案二：直接调用 Anthropic Claude API 获取分析结果（默认：方案一，生成提示词文件）",
+        help="直接调用 API 获取分析结果（默认：只生成提示词文件）",
+    )
+    parser.add_argument(
+        "--model",
+        default=ANTHROPIC_MODEL,
+        help=(
+            f"指定调用的模型 ID（需配合 --api 使用）。"
+            f"Claude 模型示例: {', '.join(sorted(CLAUDE_MODELS))}；"
+            f"DeepSeek 模型示例: {', '.join(sorted(DEEPSEEK_MODELS))}。"
+            f"默认: {ANTHROPIC_MODEL}"
+        ),
     )
     args = parser.parse_args()
 
@@ -754,8 +803,14 @@ def main():
     print(f"\n提示词已保存到文件: {output_path}")
 
     if args.api:
-        # ── 方案二：直接调用 Claude API ──
-        analysis = call_claude_api(prompt)
+        # ── 直接调用 API（根据 --model 自动路由）──
+        model = args.model
+        if model in DEEPSEEK_MODELS:
+            analysis = call_deepseek_api(prompt, model)
+        else:
+            # 默认走 Claude（含自定义 base_url 的代理场景）
+            analysis = call_claude_api(prompt)
+
         api_output_path = "gold_api_output.txt"
         with open(api_output_path, "w", encoding="utf-8") as f:
             f.write(analysis)
@@ -764,12 +819,15 @@ def main():
         print("=" * 60)
         print(f"\nAPI 分析结果已保存到文件: {api_output_path}")
     else:
-        # ── 方案一：打印提示词供手动使用 ──
+        # ── 只生成提示词文件，供手动使用 ──
         print("\n" + "=" * 60)
         print(prompt)
         print("=" * 60)
         print("\n请将上方内容复制粘贴到 Claude.ai 对话框，即可获得分析结果。")
-        print("或使用 --api 参数直接调用 Claude API：python gold_analysis.py --api")
+        print("或使用 --api 参数直接调用 API，例如：")
+        print("  python gold_analysis.py --api                              # 默认 Claude")
+        print("  python gold_analysis.py --api --model deepseek-reasoner    # DeepSeek R1")
+        print("  python gold_analysis.py --api --model deepseek-chat        # DeepSeek Chat")
 
 
 if __name__ == "__main__":
