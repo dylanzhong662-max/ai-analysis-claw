@@ -2,10 +2,14 @@
 
 ## 项目概述
 
-本项目是一个**以大语言模型（LLM）为核心决策引擎的黄金期货交易信号系统**，包含两大功能：
+本项目是一个**以大语言模型（LLM）为核心决策引擎的多资产交易信号系统**，目前覆盖两类资产：
 
-1. **实时信号生成**（`gold_analysis.py`）：采集黄金期货最新行情与宏观数据，构建结构化提示词，通过 Claude 或 DeepSeek API 生成当日交易建议。
-2. **历史回测验证**（`backtest_engine.py`）：对 LLM 的信号质量做历史模拟验证，输出胜率、盈亏比等绩效指标，并将结果反馈到下一次实时分析的提示词中，形成闭环。
+1. **黄金期货**（`gold_analysis.py` + `backtest_engine.py`）：采集 GC=F 期货行情与宏观数据，生成每日交易信号，支持历史回测验证。
+2. **谷歌科技股 GOOGL**（`google_backtest.py`）：科技股专用回测引擎，集成 QQQ 相对强度、VIX 风险环境、利率敏感度等科技股特有指标。
+
+每套系统均包含两大功能：
+- **实时信号生成**：构建结构化提示词，通过 Claude 或 DeepSeek API 生成当日交易建议。
+- **历史回测验证**：对 LLM 的信号质量做历史模拟验证，输出胜率、盈亏比等绩效指标，并将结果反馈到下一次分析的提示词中，形成闭环。
 
 ---
 
@@ -22,22 +26,28 @@
 
 ```
 大模型金融分析/
-├── gold_analysis.py          # 实时信号生成脚本（主入口）
-├── backtest_engine.py        # 历史回测引擎
-├── backtest_prompts/         # 回测用盲化提示词（每个交易日一个 .txt）
+├── gold_analysis.py          # 黄金实时信号生成脚本（主入口）
+├── backtest_engine.py        # 黄金历史回测引擎
+├── google_backtest.py        # GOOGL 科技股回测引擎（含实时信号生成）
+├── backtest_prompts/         # 黄金回测用盲化提示词（每个交易日一个 .txt）
 │   └── YYYY-MM-DD.txt
 ├── backtest_responses/       # 手动回测时保存 LLM JSON 响应（用户自行维护）
 │   └── YYYY-MM-DD.json
-├── backtest_results/         # 回测输出（自动生成）
+├── backtest_results/         # 黄金回测输出（自动生成）
 │   ├── signals.csv           # 逐笔信号与交易记录
 │   └── performance.csv       # 汇总绩效指标
+├── googl_backtest_results/   # GOOGL 回测输出（自动生成）
+│   ├── signals.csv
+│   └── performance.csv
+├── googl_backtest_prompts/   # GOOGL 盲化提示词
+├── googl_backtest_responses/ # GOOGL 手动响应文件
 ├── gold_prompt_output.txt    # 最新生成的实时提示词（自动覆盖）
 └── gold_api_output.txt       # 最新 API 调用返回的分析结果（自动覆盖）
 ```
 
 ---
 
-## 两个主脚本详解
+## 三个主脚本详解
 
 ### 1. `gold_analysis.py` — 实时信号生成
 
@@ -198,7 +208,9 @@ python backtest_engine.py --start 2025-01-01 --end 2025-12-31 --resume  # 断点
 
 ---
 
-## 当前回测绩效（2025 全年，截至最新数据）
+## 当前回测绩效
+
+### 黄金期货（2025 全年，截至最新数据）
 
 | 指标 | 数值 |
 |------|------|
@@ -211,6 +223,44 @@ python backtest_engine.py --start 2025-01-01 --end 2025-12-31 --resume  # 断点
 | 盈利因子 | 5.54 |
 | 最大回撤 | -2.01% |
 | 总收益 | +37.71% |
+
+### GOOGL 科技股（2024-01 ~ 2025-12，截至最新数据）
+
+| 指标 | 数值 | 备注 |
+|------|------|------|
+| 总信号数 | 93 | |
+| 实际入场 | 39 | |
+| INVALID_RR 次数 | 21 | 占已发信号35%，次日跳空导致 |
+| no_trade 率 | 35.5% | |
+| 胜率 | 35.9% | 多头37%，空头25% |
+| 平均盈利 | +5.21% | |
+| 平均亏损 | -2.76% | |
+| 盈利因子 | 1.06 | 待优化 |
+| 最大回撤 | -21.99% | 待优化 |
+| 总收益 | +3.88% | |
+
+**GOOGL 与黄金系统的关键差异：**
+
+| 维度 | 黄金 | GOOGL |
+|------|------|-------|
+| 宏观驱动 | DXY、白银、10Y | QQQ相对强度、VIX、10Y |
+| 跳空风险 | 低 | 高（AI新闻、财报前后） |
+| R:R目标 | ≥ 2.0 | ≥ 2.5（含跳空缓冲） |
+| 延伸入场规则 | RSI-7 > 75 上限0.55 | RSI-7 > 82 上限0.65 |
+| OBV规则 | bias -0.10 | bias -0.10，RSI>75时额外-0.05 |
+| 性能反馈 | 已实现 | 已实现（v2，2025-03优化后） |
+
+**GOOGL 系统已知问题（优化前）：**
+- INVALID_RR 35%：LLM 按信号日收盘价计算 R:R=2.0，但次日开盘跳空后实际 R:R < 1.5
+- 无性能反馈：历史胜率低时模型未收到降阈信号
+- 延伸入场被扫：RSI-7 > 82 时入场，次日跳空反向概率高
+
+**已实施优化（2025-03）：**
+1. profit_target 锚点从 2.4×ATR → 3.5×ATR（含跳空缓冲）
+2. System Prompt 要求 R:R ≥ 2.5（信号日价格），明确跳空风险警告
+3. 新增 `load_googl_perf_metrics()` 函数，读取 `googl_backtest_results/performance.csv` 注入 prompt
+4. RSI-7 > 82 且偏离 EMA20 > 2% 时，bias_score 上限 0.65
+5. OBV 背离 + RSI-7 > 75 时，累计扣减 0.15（原 0.10）
 
 ---
 
