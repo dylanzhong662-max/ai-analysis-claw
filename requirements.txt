@@ -1,0 +1,9 @@
+yfinance
+pandas
+numpy
+anthropic
+openai
+curl_cffi
+urllib3
+httpx
+requests

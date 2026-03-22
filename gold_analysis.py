@@ -144,8 +144,14 @@ def fmt_series(series: pd.Series, decimals: int = 2, n: int = 10) -> str:
 # ─────────────────────────────────────────────
 
 def _make_session() -> curl_requests.Session:
-    """创建禁用 SSL 验证的 curl_cffi session（yfinance 新版要求），用于企业网络/VPN 环境"""
-    return curl_requests.Session(impersonate="chrome", verify=False)
+    """创建禁用 SSL 验证的 curl_cffi session（yfinance 新版要求）
+    支持通过 HTTPS_PROXY / HTTP_PROXY 环境变量配置代理，用于云服务器 IP 被限速的场景。
+    """
+    session = curl_requests.Session(impersonate="chrome", verify=False)
+    proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
+    if proxy:
+        session.proxies = {"http": proxy, "https": proxy}
+    return session
 
 
 def fetch_gold_data():
@@ -202,6 +208,28 @@ def fetch_macro_data() -> dict:
             macro[key] = pd.DataFrame()
             print(f"  {ticker:8s}: 获取失败 ({e})")
     return macro
+
+
+def fetch_paxg_price() -> dict:
+    """
+    从 CoinGecko 免费 API 获取 PAXG（链上代币化黄金）实时价格。
+    PAXG = Paxos Gold，1 PAXG = 1 troy oz 实物黄金，运行在以太坊链上。
+    免费接口无需 API Key，每分钟限速 ~30 次。
+    """
+    url = "https://api.coingecko.com/api/v3/simple/price"
+    params = {"ids": "pax-gold", "vs_currencies": "usd", "include_24hr_change": "true"}
+    try:
+        import requests as std_requests
+        resp = std_requests.get(url, params=params, timeout=10)
+        data = resp.json()
+        paxg_usd = data.get("pax-gold", {}).get("usd")
+        paxg_chg = data.get("pax-gold", {}).get("usd_24h_change")
+        if paxg_usd:
+            print(f"  PAXG (链上黄金): ${paxg_usd:.2f}  24h变化: {paxg_chg:+.2f}%" if paxg_chg else f"  PAXG: ${paxg_usd:.2f}")
+        return {"price": paxg_usd, "change_24h": paxg_chg}
+    except Exception as e:
+        print(f"  PAXG 数据获取失败 ({e})")
+        return {"price": None, "change_24h": None}
 
 
 def compute_indicators(df: pd.DataFrame):
@@ -374,7 +402,8 @@ def load_perf_metrics(perf_csv: str = "backtest_results/performance.csv") -> dic
 
 def build_prompt(daily: pd.DataFrame, weekly: pd.DataFrame,
                  perf_metrics: dict | None = None,
-                 macro: dict | None = None) -> str:
+                 macro: dict | None = None,
+                 paxg: dict | None = None) -> str:
     d_ind = compute_indicators(daily)
     w_ind = compute_indicators(weekly)
 
@@ -479,7 +508,23 @@ def build_prompt(daily: pd.DataFrame, weekly: pd.DataFrame,
 - **当前比率**: {_fmt_val(ms.get('gs_ratio_last'))}  |  **5日趋势**: {ms.get('gs_ratio_trend', 'N/A')}
 - **近5日比率**: {ms.get('gs_ratio_series', [])}
 - **解读**: 比率{'上升→黄金相对白银强势→避险属性驱动，非工业需求' if ms.get('gs_ratio_trend','').startswith('↑') else '下降→白银相对黄金强势→风险偏好改善，工业需求主导'}
+
+### PAXG 链上代币化黄金 (Ethereum)
 """
+    # PAXG 区块单独拼接，避免 f-string 里嵌套条件过长
+    if paxg and paxg.get("price"):
+        paxg_price  = paxg["price"]
+        paxg_chg    = paxg.get("change_24h")
+        spread      = round(paxg_price - current_price, 2)
+        spread_pct  = round(spread / current_price * 100, 3)
+        chg_str     = f"{paxg_chg:+.2f}%" if paxg_chg is not None else "N/A"
+        spread_note = "PAXG 溢价（链上需求旺盛）" if spread > 0 else "PAXG 折价（链上流动性偏弱）"
+        macro_section += f"""- **PAXG 现价**: ${paxg_price:.2f}  |  **24h涨跌**: {chg_str}
+- **PAXG vs GC=F 价差**: {spread:+.2f} ({spread_pct:+.3f}%)  → {spread_note}
+- **解读**: PAXG 与 GC=F 价差反映链上黄金需求，持续溢价表明机构通过以太坊持仓黄金意愿增强
+"""
+    else:
+        macro_section += "- PAXG 数据暂不可用（网络超时或 CoinGecko 限速）\n"
 
     today_str = datetime.now().strftime("%Y-%m-%d")
 
@@ -785,6 +830,9 @@ def main():
     print("\n正在获取宏观跨资产数据...")
     macro = fetch_macro_data()
 
+    print("\n正在获取 PAXG 链上黄金价格（CoinGecko）...")
+    paxg = fetch_paxg_price()
+
     perf_metrics = load_perf_metrics()
     if perf_metrics:
         cl = perf_metrics.get("consecutive_losses", 0)
@@ -794,7 +842,7 @@ def main():
     else:
         print("\n未找到回测指标文件，将生成不含性能反馈的提示词")
 
-    prompt = build_prompt(daily, weekly, perf_metrics=perf_metrics, macro=macro)
+    prompt = build_prompt(daily, weekly, perf_metrics=perf_metrics, macro=macro, paxg=paxg)
 
     # ── 方案一：保存提示词文件（默认）──
     output_path = "gold_prompt_output.txt"

@@ -136,7 +136,11 @@ def fmt_series(series: pd.Series, decimals: int = 2, n: int = 12) -> str:
 # ─────────────────────────────────────────────
 
 def _make_session() -> curl_requests.Session:
-    return curl_requests.Session(impersonate="chrome", verify=False)
+    session = curl_requests.Session(impersonate="chrome", verify=False)
+    proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
+    if proxy:
+        session.proxies = {"http": proxy, "https": proxy}
+    return session
 
 
 def fetch_stock_data(ticker: str):
