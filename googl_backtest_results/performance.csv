@@ -1,2 +1,2 @@
-﻿total_signals,traded_signals,executed_trades,no_trade_cnt,invalid_rr_cnt,parse_err_cnt,no_trade_rate,win_count,loss_count,win_rate,long_win_rate,short_win_rate,avg_pnl_pct,avg_win_pct,avg_loss_pct,profit_factor,max_drawdown,total_return,monthly_winrate
-101,68,50,33,18,0,32.7%,19,31,38.0%,37%,50%,0.43%,5.39%,-2.61%,1.27,-21.99%,21.51%,2024-02: 0%  |  2024-03: 100%  |  2024-04: 67%  |  2024-05: 33%  |  2024-06: 67%  |  2024-07: 0%  |  2024-09: 0%  |  2024-10: 100%  |  2024-11: 33%  |  2024-12: 100%  |  2025-01: 0%  |  2025-02: 100%  |  2025-03: 50%  |  2025-04: 0%  |  2025-05: 0%  |  2025-06: 0%  |  2025-07: 100%  |  2025-08: 33%  |  2025-09: 50%  |  2025-10: 0%  |  2025-12: 40%
+﻿error
+无有效交易信号
