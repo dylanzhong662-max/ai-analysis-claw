@@ -316,6 +316,8 @@ Return ONLY valid JSON:
 - ⚠️ **Gap risk on entry**: GOOGL frequently gaps ±1-3% overnight due to macro news, AI narrative shifts, and pre-earnings positioning. To remain valid after typical gaps, set profit_target to achieve R:R ≥ 2.5 from current_price (not just ≥ 2.0). If a valid target cannot be identified that achieves R:R ≥ 2.5, use no_trade.
 - ⚠️ **Over-extension stops**: When RSI-7 > 82 AND price is >2% above EMA20, the stock is over-extended intraday. Long entries at these levels are frequently stopped out on the next open. Raise long bias_score threshold to ≥ 0.80 in this condition, or use no_trade if the extension is extreme (RSI-7 > 88).
 - ⚠️ **OBV divergence in uptrends**: Rising price with falling OBV in a Trending regime signals institutional distribution. This is NOT a minor -0.10 deduction — if OBV is falling for 3+ days while price rises, treat it as a medium-confidence warning and require bias_score ≥ 0.70 to enter long.
+- ⚠️ **Death Cross 抄底陷阱（高频亏损来源）**: 当 EMA50 < EMA200（死叉）且价格低于 EMA200 时，严禁做多。历史回测显示，死叉期间"买入技术性支撑位"会演变为连续止损——价格会持续寻底，每次反弹都是新的卖出机会。只有当 EMA50 重新上穿 EMA200（黄金交叉确认）后，才可恢复做多偏好。提示词中若标注"当前 Death Cross"，则 bias_score 强制 ≤ 0.45。
+- ⚠️ **大幅下跌后追空（低效空头）**: 当价格从近期高点已下跌 >20% 时，做空的风险回报极差。大跌后任何利好消息（政策、数据、技术修复）都可能引发 10%+ 的快速轧空，止损空头。空头信号的最佳时机是死叉刚形成、价格跌幅 <12% 时介入。提示词中若标注"禁止做空"，则强制 no_trade。
 
 ---
 
@@ -561,6 +563,10 @@ def build_blind_prompt(daily: pd.DataFrame, weekly: pd.DataFrame,
     pct_from_high = round((current_price - high_52w) / high_52w * 100, 1)
     pct_from_low  = round((current_price - low_52w) / low_52w * 100, 1)
 
+    # 中期趋势状态
+    is_death_cross  = (current_ema50 < current_ema200) if current_ema200 else False
+    pct_from_ema200 = round((current_price - current_ema200) / current_ema200 * 100, 1) if current_ema200 else None
+
     daily_stoch_k = fmt_series(d_ind["stoch_k"], 1, n)
     daily_adx     = fmt_series(d_ind["adx"], 1, n)
     daily_roc10   = fmt_series(d_ind["roc10"], 2, n)
@@ -586,6 +592,35 @@ def build_blind_prompt(daily: pd.DataFrame, weekly: pd.DataFrame,
 
     # 宏观摘要
     ms = _summarize_macro(macro or {}, close_d_full) if macro is not None else _summarize_macro({}, close_d_full)
+
+    # 中期趋势过滤与空头限制规则（动态生成，基于当前数据）
+    # 触发条件：DC + 价格仍低于 EMA200（真正的下跌趋势，而非已恢复的假死叉）
+    trend_filter_rules = []
+    price_below_ema200 = (pct_from_ema200 is not None and pct_from_ema200 < 0)
+    if is_death_cross and price_below_ema200:
+        ema200_str = str(current_ema200) if current_ema200 else 'N/A'
+        pf_ema200_str = f'{pct_from_ema200:+.1f}%' if pct_from_ema200 is not None else 'N/A'
+        trend_filter_rules.append(
+            f'- ⚠️ 【中期下跌趋势过滤 — Death Cross + 价格低于EMA200】EMA50({current_ema50}) < EMA200({ema200_str})，'
+            f'价格 vs EMA200: {pf_ema200_str}：做多 bias_score 强制 <= 0.45（低于0.50门槛，自动 no_trade）。'
+            f'死叉且价格未能站回EMA200，趋势尚未反转，逢低买入属系统性亏损'
+        )
+        if adx_val > 20:
+            trend_filter_rules.append(
+                f'- ⚠️ 【中期下跌趋势过滤 — Death Cross + ADX {adx_val} > 20 + 价格低于EMA200】'
+                f'三重确认下跌趋势。做多 bias_score 需 >= 0.80 方可考虑（实际等同于禁止）'
+            )
+    if pct_from_high is not None and pct_from_high < -20:
+        trend_filter_rules.append(
+            f'- ⚠️ 【空头入场限制 — 大幅下跌后禁止追空】价格距52周高点已跌 {pct_from_high:.1f}%（超过20%阈值），'
+            f'空头风险回报极差（轧空风险高）：禁止做空，强制 no_trade'
+        )
+    elif is_death_cross and price_below_ema200 and pct_from_high is not None and pct_from_high < -12:
+        trend_filter_rules.append(
+            f'- ⚠️ 【空头入场限制】价格距52周高点已跌 {pct_from_high:.1f}%（>12%）且低于EMA200，追空效率低，'
+            f'空头 bias_score 上限 0.60（需高确信度才可做空，否则 no_trade）'
+        )
+    trend_filter_section = "\n".join(trend_filter_rules)
 
     # 性能反馈段落
     perf_feedback_section = ""
@@ -782,6 +817,7 @@ BB %B:         [{daily_bb_pctb}]
 - OBV 与价格背离时，bias_score 降低 0.10；若同时 RSI-7 > 75，额外降低 0.05
 - RSI-7 ({current_rsi7}) > 82 且价格偏离 EMA20 超过 2% 时，做多 bias_score 上限 0.65（延伸过度，次日开盘被扫止损风险极高）
 - bias_score < 0.50 → 强制 no_trade
+{trend_filter_section}
 {perf_feedback_section}"""
 
     return prompt.strip()
