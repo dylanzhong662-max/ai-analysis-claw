@@ -1,0 +1,12 @@
+# 环境变量（含 API Key，禁止提交）
+.env
+.env.local
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# 数据输出（可选）
+# backtest_results/
+# googl_backtest_results/

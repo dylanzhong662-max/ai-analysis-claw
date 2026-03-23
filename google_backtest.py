@@ -62,7 +62,7 @@ PERF_FILE      = OUTPUT_DIR / "performance.csv"
 EVAL_DAYS      = 15     # 最长持仓天数
 LOOKBACK_DAYS  = 200    # 回测节点向前取数据天数
 
-DEEPSEEK_API_KEY  = os.environ.get("DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY_REMOVED")
+DEEPSEEK_API_KEY  = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 
 
