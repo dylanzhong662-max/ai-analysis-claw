@@ -116,3 +116,8 @@ python tech_stock_analysis.py --ticker NVDA --api --model
 ​                                                                      
 
  如果胜率低于 40% 或连续亏损 ≥ 2 次，提示词里会自动出现对应的警告，Claude 会据此收紧开仓标准 
+
+```
+export FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/1b11f676-90d4-4d63-b235-bc693adf4cc3
+```
+

@@ -371,6 +371,14 @@ def fetch_intelligence_data(ticker: str) -> dict:
                 if v is not None:
                     result[rk] = round(float(v), dec)
 
+            # yfinance 的 forwardPE 使用「下一财年」EPS，与市场惯例（当前财年）不符。
+            # 用 earnings_estimate 里的 0y（当前财年）EPS 重算，与 Bloomberg/FactSet 对齐。
+            curr_price = info.get("currentPrice") or info.get("regularMarketPrice")
+            curr_eps   = result.get("eps_estimate_current_y")
+            if curr_price and curr_eps and float(curr_eps) > 0:
+                result["forward_pe"] = round(float(curr_price) / float(curr_eps), 2)
+                print(f"  Forward P/E 重算: {curr_price:.2f} / {curr_eps:.3f} = {result['forward_pe']}")
+
             mc = info.get("marketCap")
             if mc:
                 result["market_cap"] = f"${mc / 1e9:.1f}B"
