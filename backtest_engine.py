@@ -450,7 +450,7 @@ For other assets (BTC, OIL, ALU): no data is provided — set action to "no_trad
 
 def call_claude(prompt: str, model: str) -> dict:
     """调用 DeepSeek API，含3次重试逻辑。"""
-    api_key = os.environ.get("DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY_REMOVED")
+    api_key = os.environ.get("DEEPSEEK_API_KEY", "sk-9574b3366dfd41178a5493d0f6af33c0")
     client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com/v1")
 
     for attempt in range(3):

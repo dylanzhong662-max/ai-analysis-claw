@@ -23,13 +23,13 @@ from datetime import datetime, timedelta
 # 优先读取环境变量，未设置则使用下方默认值
 # ─────────────────────────────────────────────
 ANTHROPIC_BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://api.openai-proxy.org/anthropic")
-ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY",  "ANTHROPIC_API_KEY_REMOVED")
+ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY",  "sk-6BV9Xfa9AJ09pkt0AHFPQtZUtlM28pCOnon6ArdIJW1fVyDP")
 ANTHROPIC_MODEL    = "claude-sonnet-4-6"
 
 # ─────────────────────────────────────────────
 # DeepSeek API 配置
 # ─────────────────────────────────────────────
-DEEPSEEK_API_KEY  = os.environ.get("DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY_REMOVED")
+DEEPSEEK_API_KEY  = os.environ.get("DEEPSEEK_API_KEY", "sk-9574b3366dfd41178a5493d0f6af33c0")
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 
 # 支持的模型列表（用于 --model 参数提示）
