@@ -29,10 +29,10 @@ from datetime import datetime
 # API 配置
 # ─────────────────────────────────────────────
 ANTHROPIC_BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://api.openai-proxy.org/anthropic")
-ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY",  "")
+ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY",  "ANTHROPIC_API_KEY_REMOVED")
 ANTHROPIC_MODEL    = "claude-sonnet-4-6"
 
-DEEPSEEK_API_KEY  = os.environ.get("DEEPSEEK_API_KEY", "")
+DEEPSEEK_API_KEY  = os.environ.get("DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY_REMOVED")
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 
 CLAUDE_MODELS   = {"claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"}
