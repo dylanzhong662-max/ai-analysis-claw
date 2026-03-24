@@ -7,3 +7,4 @@ curl_cffi
 urllib3
 httpx
 requests
+python-binance

@@ -28,9 +28,11 @@ log "===== 每日金融分析开始 ====="
 
 cd "${SCRIPT_DIR}"
 
-# ── 黄金分析 ──
-log "--- [1/3] 黄金分析 ---"
-if python3 gold_analysis.py --api  2>&1 | tee -a "${LOG_FILE}"; then
+# ── 黄金分析 + PAXG 交易 ──
+# 当前: --dry-run 模拟模式（阶段一验证，不真实下单）
+# 验证无误后改为: --trade --max-usdt 30 开始真实交易
+log "--- [1/5] 黄金分析 ---"
+if python3 gold_analysis.py --api --trade --dry-run 2>&1 | tee -a "${LOG_FILE}"; then
     log "黄金分析完成"
 else
     log "[错误] 黄金分析失败，继续下一步"

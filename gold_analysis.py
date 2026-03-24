@@ -32,6 +32,23 @@ ANTHROPIC_MODEL    = "claude-sonnet-4-6"
 DEEPSEEK_API_KEY  = os.environ.get("DEEPSEEK_API_KEY", "sk-9574b3366dfd41178a5493d0f6af33c0")
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 
+# ─────────────────────────────────────────────
+# Binance API 配置（链上黄金交易）
+# 必须通过环境变量设置，禁止硬编码
+# ─────────────────────────────────────────────
+BINANCE_API_KEY    = os.environ.get("BINANCE_API_KEY", "")
+BINANCE_API_SECRET = os.environ.get("BINANCE_API_SECRET", "")
+TRADING_SYMBOL     = "PAXGUSDT"
+TRADE_LOG_PATH     = "trade_log.csv"
+HALT_FILE          = "TRADING_HALT"
+CIRCUIT_BREAKER_N  = 3   # 连续止损次数触发熔断
+
+TRADE_LOG_COLUMNS = [
+    "timestamp", "date", "signal_action", "symbol",
+    "side", "quantity", "price", "stop_loss", "profit_target",
+    "order_id", "status", "dry_run", "bias_score", "notes",
+]
+
 # 支持的模型列表（用于 --model 参数提示）
 CLAUDE_MODELS   = {"claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"}
 DEEPSEEK_MODELS = {"deepseek-reasoner", "deepseek-chat"}
@@ -814,6 +831,314 @@ def call_deepseek_api(prompt: str, model: str) -> str:
 
 
 # ─────────────────────────────────────────────
+# 信号解析
+# ─────────────────────────────────────────────
+
+def parse_signal(response: str) -> dict | None:
+    """从 LLM 响应中提取交易信号 JSON，按优先级尝试三种解析方式"""
+    import json, re
+
+    # 方法1：整体直接解析
+    try:
+        return json.loads(response)
+    except Exception:
+        pass
+
+    # 方法2：提取 markdown ```json ... ``` 代码块
+    match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1))
+        except Exception:
+            pass
+
+    # 方法3：大括号层级匹配
+    start = response.find('{')
+    if start != -1:
+        depth, end = 0, -1
+        for i, c in enumerate(response[start:], start):
+            if c == '{':
+                depth += 1
+            elif c == '}':
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        if end != -1:
+            try:
+                return json.loads(response[start:end + 1])
+            except Exception:
+                pass
+
+    return None
+
+
+def extract_asset_signal(parsed: dict, asset: str = "GOLD") -> dict | None:
+    """从解析后的 JSON 中提取指定资产的信号字典"""
+    if not parsed:
+        return None
+    for item in parsed.get("asset_analysis", []):
+        if item.get("asset", "").upper() == asset.upper():
+            return item
+    return None
+
+
+# ─────────────────────────────────────────────
+# Binance 交易执行模块
+# ─────────────────────────────────────────────
+
+def is_trading_halted() -> bool:
+    if os.path.exists(HALT_FILE):
+        print(f"\n[HALT] 交易已暂停：检测到 {HALT_FILE} 文件。确认安全后手动删除该文件以恢复。")
+        return True
+    return False
+
+
+def load_trade_log() -> pd.DataFrame:
+    if os.path.exists(TRADE_LOG_PATH):
+        return pd.read_csv(TRADE_LOG_PATH)
+    return pd.DataFrame(columns=TRADE_LOG_COLUMNS)
+
+
+def append_trade_log(record: dict):
+    df = load_trade_log()
+    df = pd.concat([df, pd.DataFrame([record])], ignore_index=True)
+    df.to_csv(TRADE_LOG_PATH, index=False)
+
+
+def check_daily_limit(trade_log: pd.DataFrame) -> bool:
+    """今日是否已有实盘开仓记录，True = 可继续交易"""
+    today = datetime.now().strftime("%Y-%m-%d")
+    real = trade_log[(trade_log["dry_run"] == False) & (trade_log["date"] == today)]
+    if len(real) > 0:
+        print("  [安全锁] 今日已有实盘记录，每日限 1 笔，跳过。")
+        return False
+    return True
+
+
+def check_circuit_breaker(trade_log: pd.DataFrame) -> bool:
+    """最近 CIRCUIT_BREAKER_N 笔实盘全部止损 → 触发熔断，创建 HALT 文件"""
+    real = trade_log[
+        (trade_log["dry_run"] == False) &
+        (trade_log["status"] == "STOP_LOSS")
+    ]
+    if len(real) >= CIRCUIT_BREAKER_N:
+        last_n = trade_log[trade_log["dry_run"] == False].tail(CIRCUIT_BREAKER_N)
+        if (last_n["status"] == "STOP_LOSS").all():
+            print(f"\n[熔断] 最近 {CIRCUIT_BREAKER_N} 笔实盘全部止损，自动暂停交易。")
+            print(f"  正在创建 {HALT_FILE}，请人工审查后删除该文件以恢复。")
+            open(HALT_FILE, "w").close()
+            return True
+    return False
+
+
+def _floor_to_step(value: float, step: float) -> float:
+    """数量按 Binance 步长向下截断"""
+    import math
+    if step <= 0:
+        return value
+    decimals = len(f"{step:.10f}".rstrip("0").split(".")[-1]) if "." in str(step) else 0
+    return round(math.floor(value / step) * step, decimals)
+
+
+def _round_to_tick(value: float, tick: float) -> float:
+    """价格按 Binance tick 精度四舍五入"""
+    if tick <= 0:
+        return value
+    decimals = len(f"{tick:.10f}".rstrip("0").split(".")[-1]) if "." in str(tick) else 0
+    return round(round(value / tick) * tick, decimals)
+
+
+def get_symbol_filters(client, symbol: str) -> dict:
+    """查询交易对精度及最小下单要求"""
+    info = client.get_symbol_info(symbol)
+    result = {"step_size": 0.0001, "tick_size": 0.01, "min_qty": 0.0001, "min_notional": 5.0}
+    for f in info.get("filters", []):
+        ft = f["filterType"]
+        if ft == "LOT_SIZE":
+            result["step_size"] = float(f["stepSize"])
+            result["min_qty"]   = float(f["minQty"])
+        elif ft == "PRICE_FILTER":
+            result["tick_size"] = float(f["tickSize"])
+        elif ft in ("MIN_NOTIONAL", "NOTIONAL"):
+            result["min_notional"] = float(f.get("minNotional", 5.0))
+    return result
+
+
+def parse_entry_price(entry_zone: str) -> float | None:
+    """解析 entry_zone 字符串（如 '3300 - 3350' 或 '$3325'），返回中点价格"""
+    import re
+    nums = re.findall(r'[\d]+(?:\.\d+)?', entry_zone.replace(',', ''))
+    if len(nums) >= 2:
+        return round((float(nums[0]) + float(nums[1])) / 2, 2)
+    elif len(nums) == 1:
+        return float(nums[0])
+    return None
+
+
+def execute_trade(signal: dict, dry_run: bool = True, max_usdt: float = 50.0):
+    """
+    根据 LLM 信号执行 PAXG/USDT 交易。
+
+    安全锁（按顺序检查）：
+      1. TRADING_HALT 文件
+      2. 熔断检测（连续 N 笔止损）
+      3. 每日限 1 笔实盘
+      4. 实时余额校验
+      5. 单笔上限 max_usdt
+      6. Binance 最小下单量校验
+    """
+    action        = signal.get("action", "no_trade").lower()
+    bias_score    = signal.get("bias_score", 0.0)
+    entry_zone    = signal.get("entry_zone", "")
+    stop_loss     = signal.get("stop_loss")
+    profit_target = signal.get("profit_target")
+
+    prefix = "[DRY RUN] " if dry_run else "[LIVE] "
+    print(f"\n{prefix}交易执行器启动")
+    print(f"  信号: {action}  |  bias_score: {bias_score}  |  entry_zone: {entry_zone}")
+
+    if action == "no_trade":
+        print("  -> no_trade 信号，不操作。")
+        return
+
+    # ── 安全检查（实盘才执行）──
+    trade_log = load_trade_log()
+    if not dry_run:
+        if is_trading_halted():
+            return
+        if check_circuit_breaker(trade_log):
+            return
+        if not check_daily_limit(trade_log):
+            return
+
+    # ── 解析入场价 ──
+    entry_price = parse_entry_price(entry_zone)
+    if entry_price is None:
+        print(f"  [警告] 无法解析 entry_zone: '{entry_zone}'，跳过。")
+        return
+
+    # ── 连接 Binance 或使用模拟数据 ──
+    if not dry_run:
+        if not BINANCE_API_KEY or not BINANCE_API_SECRET:
+            print("  [错误] 未设置 BINANCE_API_KEY / BINANCE_API_SECRET 环境变量，无法交易。")
+            return
+        try:
+            from binance.client import Client as BinanceClient
+            client   = BinanceClient(BINANCE_API_KEY, BINANCE_API_SECRET)
+            account  = client.get_account()
+            balances = {b["asset"]: float(b["free"]) for b in account["balances"]
+                        if b["asset"] in ("PAXG", "USDT")}
+            filters  = get_symbol_filters(client, TRADING_SYMBOL)
+        except Exception as e:
+            print(f"  [错误] Binance 连接失败: {e}")
+            return
+    else:
+        # 模拟账户余额
+        balances = {"PAXG": 0.06, "USDT": 50.0}
+        filters  = {"step_size": 0.0001, "tick_size": 0.01,
+                    "min_qty": 0.0001, "min_notional": 5.0}
+
+    paxg_free  = balances.get("PAXG", 0.0)
+    usdt_free  = balances.get("USDT", 0.0)
+    step_size  = filters["step_size"]
+    tick_size  = filters["tick_size"]
+    min_qty    = filters["min_qty"]
+    min_notional = filters["min_notional"]
+
+    print(f"  账户余额 -> PAXG: {paxg_free:.6f}  USDT: {usdt_free:.2f}")
+
+    # ── 计算下单数量 ──
+    if action == "long":
+        side           = "BUY"
+        usdt_to_use    = min(max_usdt, usdt_free)
+        quantity       = _floor_to_step(usdt_to_use / entry_price, step_size)
+        balance_ok     = usdt_free >= min_notional
+        balance_desc   = f"USDT 可用 {usdt_free:.2f}"
+    else:  # short = 现货卖出 PAXG
+        side           = "SELL"
+        paxg_to_sell   = _floor_to_step(min(max_usdt / entry_price, paxg_free), step_size)
+        quantity       = paxg_to_sell
+        balance_ok     = paxg_free >= min_qty
+        balance_desc   = f"PAXG 可用 {paxg_free:.6f}"
+
+    notional = quantity * entry_price
+
+    print(f"  方向: {side}  数量: {quantity} PAXG  限价: {entry_price}  名义金额: ${notional:.2f}")
+    print(f"  止损: {stop_loss}  目标: {profit_target}")
+
+    # ── 最终验证 ──
+    if not balance_ok:
+        print(f"  [安全锁] 余额不足（{balance_desc}），跳过。")
+        return
+    if quantity < min_qty:
+        print(f"  [安全锁] 数量 {quantity} < 最小值 {min_qty}，跳过。")
+        return
+    if notional < min_notional:
+        print(f"  [安全锁] 名义金额 ${notional:.2f} < 最小值 ${min_notional}，跳过。")
+        return
+
+    # ── 下单 ──
+    now_str   = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    order_id  = None
+    status    = "PENDING"
+
+    if dry_run:
+        order_id = f"DRY_{today_str}_{side}"
+        status   = "DRY_RUN"
+        print(f"\n  ===== 模拟订单（未真实下单）=====")
+        print(f"  交易对  : {TRADING_SYMBOL}")
+        print(f"  方向    : {side}")
+        print(f"  类型    : LIMIT GTC")
+        print(f"  数量    : {quantity} PAXG")
+        print(f"  限价    : {entry_price}")
+        print(f"  止损参考: {stop_loss}  （需手动在 Binance App 挂止损单）")
+        print(f"  目标参考: {profit_target}")
+        print(f"  ===================================")
+        print(f"  [DRY RUN] 完成，未实际下单。确认逻辑正确后去掉 --dry-run 进行真实交易。")
+    else:
+        try:
+            limit_price = _round_to_tick(entry_price, tick_size)
+            from binance.client import Client as BinanceClient
+            order = client.create_order(
+                symbol      = TRADING_SYMBOL,
+                side        = side,
+                type        = "LIMIT",
+                timeInForce = "GTC",
+                quantity    = str(quantity),
+                price       = str(limit_price),
+            )
+            order_id = str(order.get("orderId", ""))
+            status   = order.get("status", "UNKNOWN")
+            print(f"  [成功] 订单已提交: orderId={order_id}  status={status}")
+            print(f"  [提醒] 止损价 {stop_loss} 请立即在 Binance App 手动设置止损单。")
+            print(f"         路径: 现货订单 -> 找到此订单 -> 设置止损")
+        except Exception as e:
+            print(f"  [失败] 下单报错: {e}")
+            status = f"ERROR: {e}"
+
+    # ── 记录日志 ──
+    append_trade_log({
+        "timestamp":     now_str,
+        "date":          today_str,
+        "signal_action": action,
+        "symbol":        TRADING_SYMBOL,
+        "side":          side,
+        "quantity":      quantity,
+        "price":         entry_price,
+        "stop_loss":     stop_loss,
+        "profit_target": profit_target,
+        "order_id":      order_id,
+        "status":        status,
+        "dry_run":       dry_run,
+        "bias_score":    bias_score,
+        "notes":         f"entry_zone={entry_zone}",
+    })
+    print(f"  [日志] 已记录到 {TRADE_LOG_PATH}")
+
+
+# ─────────────────────────────────────────────
 # 主程序
 # ─────────────────────────────────────────────
 
@@ -833,6 +1158,22 @@ def main():
             f"DeepSeek 模型示例: {', '.join(sorted(DEEPSEEK_MODELS))}。"
             f"默认: {ANTHROPIC_MODEL}"
         ),
+    )
+    parser.add_argument(
+        "--trade",
+        action="store_true",
+        help="分析完成后自动执行 PAXG/USDT 交易（需配合 --api 使用）",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="模拟交易：打印订单但不真实下单（需配合 --trade 使用）",
+    )
+    parser.add_argument(
+        "--max-usdt",
+        type=float,
+        default=50.0,
+        help="单笔最大 USDT 金额（默认 50，建议测试阶段保持 30-50）",
     )
     args = parser.parse_args()
 
@@ -877,6 +1218,23 @@ def main():
         print(analysis)
         print("=" * 60)
         print(f"\nAPI 分析结果已保存到文件: {api_output_path}")
+
+        # ── 交易执行 ──
+        if args.trade:
+            if not args.dry_run and args.max_usdt > 200:
+                print(f"\n[安全锁] --max-usdt {args.max_usdt} 超过 200 上限，已强制设为 200。")
+                args.max_usdt = 200.0
+            parsed_signal = parse_signal(analysis)
+            asset_signal  = extract_asset_signal(parsed_signal)
+            if asset_signal:
+                execute_trade(
+                    signal   = asset_signal,
+                    dry_run  = args.dry_run,
+                    max_usdt = args.max_usdt,
+                )
+            else:
+                print("\n[警告] 无法从 API 响应中解析 GOLD 交易信号，跳过交易。")
+                print("  请检查 gold_api_output.txt 确认 LLM 输出格式是否正确。")
     else:
         # ── 只生成提示词文件，供手动使用 ──
         print("\n" + "=" * 60)
@@ -884,9 +1242,11 @@ def main():
         print("=" * 60)
         print("\n请将上方内容复制粘贴到 Claude.ai 对话框，即可获得分析结果。")
         print("或使用 --api 参数直接调用 API，例如：")
-        print("  python gold_analysis.py --api                              # 默认 Claude")
-        print("  python gold_analysis.py --api --model deepseek-reasoner    # DeepSeek R1")
-        print("  python gold_analysis.py --api --model deepseek-chat        # DeepSeek Chat")
+        print("  python gold_analysis.py --api                                          # 只分析")
+        print("  python gold_analysis.py --api --trade --dry-run                        # 模拟交易（推荐先用这个）")
+        print("  python gold_analysis.py --api --trade --dry-run --max-usdt 30          # 模拟，限额 $30")
+        print("  python gold_analysis.py --api --trade --max-usdt 30                    # 真实下单，限额 $30")
+        print("  python gold_analysis.py --api --model deepseek-reasoner --trade --dry-run  # DeepSeek 模拟")
 
 
 if __name__ == "__main__":
