@@ -31,20 +31,20 @@ cd "${SCRIPT_DIR}"
 
 # 每周一同样跑一遍最新日线分析（获取最新数据）
 log "--- [1/4] 黄金分析（周） ---"
-python3 gold_analysis.py --api 2>&1 | tee -a "${LOG_FILE}" || log "[错误] 黄金分析失败"
+python3 gold_analysis.py --api  2>&1 | tee -a "${LOG_FILE}" || log "[错误] 黄金分析失败"
 
 log "--- [2/4] BTC 分析（周） ---"
-python3 btc_analysis.py --api 2>&1 | tee -a "${LOG_FILE}" || log "[错误] BTC 分析失败"
+python3 btc_analysis.py --api  2>&1 | tee -a "${LOG_FILE}" || log "[错误] BTC 分析失败"
 
 # 科技股分析
 log "--- [3/6] 科技股分析（GOOGL）---"
-python3 tech_stock_analysis.py --ticker GOOGL --api 2>&1 | tee -a "${LOG_FILE}" || log "[错误] GOOGL 分析失败"
+python3 tech_stock_analysis.py --ticker GOOGL --api  2>&1 | tee -a "${LOG_FILE}" || log "[错误] GOOGL 分析失败"
 
 log "--- [4/6] 科技股分析（NVDA）---"
-python3 tech_stock_analysis.py --ticker NVDA --api 2>&1 | tee -a "${LOG_FILE}" || log "[错误] NVDA 分析失败"
+python3 tech_stock_analysis.py --ticker NVDA --api  2>&1 | tee -a "${LOG_FILE}" || log "[错误] NVDA 分析失败"
 
 log "--- [5/6] 科技股分析（AMZN）---"
-python3 tech_stock_analysis.py --ticker AMZN --api 2>&1 | tee -a "${LOG_FILE}" || log "[错误] AMZN 分析失败"
+python3 tech_stock_analysis.py --ticker AMZN --api  2>&1 | tee -a "${LOG_FILE}" || log "[错误] AMZN 分析失败"
 
 # 发送飞书周报（weekly 模式信息更详尽）
 log "--- [6/6] 飞书周报推送 ---"

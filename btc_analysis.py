@@ -970,22 +970,32 @@ ROC-20: [{d_roc20_s}]
 # ─────────────────────────────────────────────
 
 def call_claude_api(prompt: str) -> str:
+    import time
     print(f"\n正在调用 Claude API（模型: {ANTHROPIC_MODEL}）...")
     client = Anthropic(
         base_url=ANTHROPIC_BASE_URL,
         api_key=ANTHROPIC_API_KEY,
-        http_client=httpx.Client(verify=False),
+        http_client=httpx.Client(verify=False, timeout=120.0),
     )
-    message = client.messages.create(
-        model=ANTHROPIC_MODEL,
-        max_tokens=4096,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    result = ""
-    for block in message.content:
-        if hasattr(block, "text"):
-            result += block.text
-    return result
+    for attempt in range(3):
+        try:
+            message = client.messages.create(
+                model=ANTHROPIC_MODEL,
+                max_tokens=8096,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            result = ""
+            for block in message.content:
+                if hasattr(block, "text"):
+                    result += block.text
+            return result
+        except Exception as e:
+            if attempt < 2:
+                wait = 15 * (attempt + 1)
+                print(f"  [重试 {attempt + 1}/3] 错误: {e}，{wait}s 后重试...")
+                time.sleep(wait)
+            else:
+                raise
 
 
 def call_deepseek_api(prompt: str, model: str) -> str:
