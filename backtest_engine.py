@@ -273,7 +273,11 @@ Now, analyze the market data provided below and make your trading decision.
 # ─────────────────────────────────────────────
 
 def _make_session():
-    return curl_requests.Session(impersonate="chrome", verify=False)
+    session = curl_requests.Session(impersonate="chrome", verify=False)
+    proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
+    if proxy:
+        session.proxies = {"http": proxy, "https": proxy}
+    return session
 
 
 def _download_with_retry(ticker, start, end, interval, retries=3) -> pd.DataFrame:

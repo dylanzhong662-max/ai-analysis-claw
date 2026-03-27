@@ -3,48 +3,44 @@
   "period": "Weekly",
   "stock_ticker": "GOOGL",
   "overall_market_sentiment": "Risk-Off",
-  "qqq_assessment": "QQQ近8周下跌3.6%，EMA仍为金叉多头结构但短期承压，整体对GOOGL方向性影响中性偏空（同步回调但GOOGL相对跑赢）。",
-  "sector_assessment": "XLK板块相对QQQ超额0.59%，科技板块仍具相对韧性，对GOOGL为结构性利好因素。",
-  "macro_rate_environment": "10年期美债收益率上升至4.334%（近8周+3.0%），美联储政策偏向紧缩，对成长股估值构成压力，是当前主要宏观逆风。",
+  "qqq_assessment": "QQQ处于EMA金叉（50>200）的长期多头结构中，但近8周回调5.9%，短期趋势向下。VIX处于恐慌区间，市场避险情绪浓厚。对GOOGL而言，QQQ的短期疲软构成压力，但长期结构未破坏，若市场企稳，科技股龙头有望率先反弹。",
+  "sector_assessment": "XLK近8周跑输QQQ（超额-0.23%），显示科技板块整体面临资金流出或相对弱势，板块轮动信号对GOOGL不利。",
+  "macro_rate_environment": "10年期收益率趋势上升（4.416%指向5.0%），高利率环境持续压制成长股估值，尤其是对长期现金流折现敏感的科技股。Fed政策偏向紧缩，宏观层面对GOOGL等科技股构成显著压力。",
   "earnings_risk_flag": false,
-  "earnings_days_away": 30,
+  "earnings_days_away": 27,
   "asset_analysis": [
     {
       "asset": "GOOGL",
-      "regime": "Consolidation",
+      "regime": "Trending-Down",
       "action": "no_trade",
-      "bias_score": 0.48,
-      "entry_zone": "293.58 – 310.54",
+      "bias_score": 0.4,
+      "entry_zone": "271.65 – 290.19",
       "profit_target": null,
       "stop_loss": null,
       "risk_reward_ratio": null,
-      "invalidation_condition": "价格有效突破并站稳周线EMA-20（300.01）上方，同时OBV止跌回升、周线MACD动能转强，方可重新评估做多机会。",
-      "estimated_holding_weeks": 12,
-
+      "invalidation_condition": "价格放量突破并站稳周线EMA20（~$298）之上，同时QQQ止跌反弹且VIX回落至25以下，则下跌趋势可能失效。",
+      "estimated_holding_weeks": 0,
       "price_action_analysis": {
-        "trend_structure": "长期EMA多头排列（价格>EMA50>EMA200），但短期价格在EMA20附近徘徊，呈现高位整理；月线MACD（44.67）仍为多头但增长放缓。",
-        "momentum_signals": "周线MACD（14.77）为正值但连续12周下降，多头动能衰减；RSI-14（55.81）中性，Stochastic（14.9）超卖金叉提供短期反弹信号但强度有限。",
-        "volatility_context": "周线ATR=16.95，布林带%B=0.323（中轨下方），带宽扩张（18.13%）显示波动率增大，价格处于回调后的低位震荡。",
-        "volume_obv": "OBV近6周下降，与价格走势背离（机构派发迹象），量价关系偏空。",
-        "relative_strength_vs_qqq": "20周相对强弱跑赢QQQ 12.34%，显示个股alpha，但近6周超额收益可能收窄（因OBV背离）。"
+        "trend_structure": "长期（月线）趋势坚定向上（价格>EMA20，MACD强正值）。中期（周线）结构出现裂痕：价格已跌破EMA20（$298），但仍高于EMA50（$261.84）和EMA200（$196.6），且EMA50>EMA200维持长期金叉。整体为长期牛市中的中期回调。",
+        "momentum_signals": "周线MACD（13.08）仍为正值但已连续大幅收敛，多头动能显著衰减。RSI-14（46.35）进入中性偏弱区间，RSI-7（29.71）接近超卖。Stochastic %K（3.4）极度超卖。ADX（34.4）显示趋势仍强，但-DI（22.2）> +DI（19.5），空头主导短期动能。",
+        "volatility_context": "周线ATR为18.55，波动性中等偏高。BB%B为0.019，价格触及布林带下轨，显示短期超卖。带宽扩张至20.12%，表明波动率放大，趋势可能加速。",
+        "volume_obv": "OBV近6周呈下降趋势，与价格从高点回落同步，显示下跌伴随卖盘，为量价配合下跌，非典型背离，但确认了机构派发或资金流出。",
+        "relative_strength_vs_qqq": "近20周跑赢QQQ约7.07%，显示个股具有相对强势，但在近期市场普跌中，这种相对强势可能被削弱。"
       },
-
       "structured_analysis": {
-        "market_hierarchy_alignment": "L1宏观（利率上升利空）与L2指数（QQQ回调）冲突；L3板块（XLK领涨）、L4个股（跑赢QQQ）利好；L5技术（整理偏弱）。存在2层冲突（L1 vs L3/L4）。",
-        "earnings_cycle_phase": "财报后周期，距下次财报30天（2026-04-24），处于中等风险窗口（16-30天）。",
-        "sector_rotation_signal": "XLK跑赢QQQ，科技板块内部轮动仍支撑GOOGL相对强势。",
-        "regime_justification": "价格自52周高点回调12.1%后贴近52周低点，周线EMA多头但MACD动能持续下降，ADX（35.0）显示趋势强度减弱，结合OBV背离，判断为上涨趋势中的高位整理阶段。"
+        "market_hierarchy_alignment": "存在显著冲突。L1（宏观利空）、L2（指数短期跌长期多，冲突）、L3（板块利空）、L4（个股相对强势，利好）、L5（技术面回调）。至少2层冲突，未形成同向合力。",
+        "earnings_cycle_phase": "处于财报季间期，距下次财报（2026-04-24）约27天，属于中等财报风险窗口（16-30天）。",
+        "sector_rotation_signal": "XLK跑输QQQ，板块轮动不利，削弱了做多科技股的整体环境。",
+        "regime_justification": "判断为“Trending-Down”的核心依据：1) 价格明确跌破周线EMA20关键均线；2) 周线-DI > +DI且ADX>25，确认空头主导的下跌趋势；3) 从近期高点$343.45回落超18%，形成清晰的下降波段。"
       },
-
       "intelligence_analysis": {
-        "earnings_estimate_trend": "EPS连续4季超预期，盈利质量高；季度营收加速（环比+5.1pp），基本面强劲。",
-        "analyst_consensus": "强烈看多（90%买入评级），平均目标价$376.75，上行空间+24.7%，提供强劲基本面锚定。",
-        "valuation_context": "远期P/E 26.42合理偏高，但匹配18%营收增速和31%盈利增长；ROE 35.7%显示高资本效率。估值需等待利率环境改善或AI货币化催化。",
-        "macro_catalyst": "核心驱动力为AI货币化（Gemini/Cloud增速）能否抵消利率上行对估值的压制，以及搜索广告在AI冲击下的韧性。",
-        "competitive_intelligence": "1) AI搜索替代威胁存在但GOOGL通过AI Overviews整合应对；2) Cloud增速>25%且份额提升是关键估值催化剂；3) YouTube面临Reels/TikTok竞争但用户基数稳固；4) DOJ反垄断诉讼构成长期监管风险但非近期主导因素；5) Gemini货币化初期，与MSFT Copilot竞争差距待缩小。整体看，AI转型进程与核心广告业务的平衡是中期焦点。"
+        "earnings_estimate_trend": "盈利预估稳健，连续4个季度超预期，显示盈利质量高。全年EPS预期增速5.8%，营收预期增速16.9%，增长前景依然健康。",
+        "analyst_consensus": "极度看多，91%分析师给出买入评级，平均目标价$376.75，隐含+34.1%上行空间，构成强劲的基本面支撑。",
+        "valuation_context": "远期市盈率24.57处于历史合理区间，考虑到公司高盈利增长（YoY 31.1%）和营收加速（最近季度环比增速提升），估值并不极端。高ROE（35.7%）和净利率（32.8%）显示卓越的财务质量。",
+        "macro_catalyst": "核心宏观矛盾：高利率环境与AI投资周期的博弈。长期驱动力在于AI（Gemini）和云业务（Google Cloud）的货币化进展，但短期受制于利率上升对成长股整体的估值压制。",
+        "competitive_intelligence": "1) AI搜索威胁存在，但市场担忧已部分反映在股价回调中；2) Google Cloud增速是关键，若能维持高增长将重估估值；3) YouTube面临竞争但生态稳固；4) DOJ反垄断诉讼是长期悬案，构成估值折价但非近期主导因素；5) Gemini AI货币化处于早期，是未来1-2年的主要增长故事。"
       },
-
-      "justification": "从三维度综合评估：技术面，长期趋势向上但短期动能衰竭（MACD连续下降、OBV背离），价格进入关键支撑区（$298-302）整理，需等待明确方向信号。基本面，盈利与营收增长强劲，分析师目标价隐含显著上行空间，但估值受利率环境压制。市场结构上，宏观逆风（利率上升）与板块/个股相对强势冲突，形成两层不对齐。基于硬性约束，虽无强制禁止条件，但信号质量过滤后bias_score为0.48（五层冲突上限0.5，OBV背离-0.1，VIX>25 -0.05，基本面正面因素+0.13），低于0.50的入场阈值。当前处于财报前30天的中等风险窗口，且整理制度下波动可能加大，建议耐心等待价格在支撑区企稳、量价背离修复或宏观压力缓解后再寻求中长线做多机会。"
+      "justification": "综合三维分析，结论为“no_trade”。核心矛盾在于：强劲的基本面（盈利超预期、分析师极度看多、营收加速）与恶化的技术面及宏观环境（利率上升、板块走弱、价格跌破关键均线）形成强烈冲突。尽管长期趋势完好且估值合理，但中短期市场处于“Risk-Off”模式，五层市场层级未对齐（至少2层冲突）。根据框架规则，此时强行交易（无论多空）的胜率和风险回报比不佳。中长线投资者应保持耐心，等待更明确的信号：要么宏观压力缓解（利率见顶、VIX回落）、价格在关键支撑（如EMA50 ~$262）企稳并出现反转信号后考虑做多；要么若下跌趋势延续，个股相对强势瓦解，再评估做空机会。当前距财报27天，可等待财报后趋势进一步明朗。"
     }
   ]
 }

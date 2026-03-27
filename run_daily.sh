@@ -30,7 +30,7 @@ cd "${SCRIPT_DIR}"
 
 # ── 黄金分析 + PAXG 交易 ──
 log "--- [1/5] 黄金分析 ---"
-if python3 gold_analysis.py --api --trade --max-usdt 30 2>&1 | tee -a "${LOG_FILE}"; then
+if python3 gold_analysis.py --api --model deepseek-reasoner --trade --max-usdt 30 2>&1 | tee -a "${LOG_FILE}"; then
     log "黄金分析完成"
 else
     log "[错误] 黄金分析失败，继续下一步"
@@ -38,7 +38,7 @@ fi
 
 # ── BTC 分析 ──
 log "--- [2/3] BTC 分析 ---"
-if python3 btc_analysis.py --api  2>&1 | tee -a "${LOG_FILE}"; then
+if python3 btc_analysis.py --api --model deepseek-reasoner 2>&1 | tee -a "${LOG_FILE}"; then
     log "BTC 分析完成"
 else
     log "[错误] BTC 分析失败，继续下一步"
@@ -46,21 +46,21 @@ fi
 
 # ── 科技股分析 ──
 log "--- [3/5] GOOGL 分析 ---"
-if python3 tech_stock_analysis.py --ticker GOOGL --api  2>&1 | tee -a "${LOG_FILE}"; then
+if python3 tech_stock_analysis.py --ticker GOOGL --api --model deepseek-reasoner 2>&1 | tee -a "${LOG_FILE}"; then
     log "GOOGL 分析完成"
 else
     log "[错误] GOOGL 分析失败，继续下一步"
 fi
 
 log "--- [4/5] NVDA 分析 ---"
-if python3 tech_stock_analysis.py --ticker NVDA --api  2>&1 | tee -a "${LOG_FILE}"; then
+if python3 tech_stock_analysis.py --ticker NVDA --api --model deepseek-reasoner 2>&1 | tee -a "${LOG_FILE}"; then
     log "NVDA 分析完成"
 else
     log "[错误] NVDA 分析失败，继续下一步"
 fi
 
 log "--- [5/5 前] AMZN 分析 ---"
-if python3 tech_stock_analysis.py --ticker AMZN --api  2>&1 | tee -a "${LOG_FILE}"; then
+if python3 tech_stock_analysis.py --ticker AMZN --api --model deepseek-reasoner 2>&1 | tee -a "${LOG_FILE}"; then
     log "AMZN 分析完成"
 else
     log "[错误] AMZN 分析失败，继续下一步"

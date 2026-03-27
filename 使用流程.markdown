@@ -51,7 +51,7 @@ python3 btc_analysis.py --api --model deepseek-reasoner
 ```
 python3 tech_stock_analysis.py --ticker GOOGL --api --model deepseek-reasoner
 
-python tech_stock_analysis.py --ticker NVDA --api --model           
+python3 tech_stock_analysis.py --ticker NVDA --api --model           
       deepseek-reasoner
 ```
 
