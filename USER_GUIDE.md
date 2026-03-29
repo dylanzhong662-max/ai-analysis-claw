@@ -173,22 +173,45 @@ crontab -e
 
 ### 代理服务管理（Shadowsocks + Privoxy）
 
+ss-local 已配置为 **systemd 服务**，开机自动启动，无需手动拉起。
+
 ```bash
 # 查看代理状态
+systemctl status ss-local
 systemctl status privoxy
-pgrep -a ss-local
 
-# 重启代理
-pkill -f ss-local
-nohup ss-local -c /etc/shadowsocks-libev/local.json > /var/log/ss-local.log 2>&1 &
+# 重启代理（正常维护用）
+systemctl restart ss-local
 systemctl restart privoxy
 
-# 验证代理可用
-curl --proxy http://127.0.0.1:8118 https://finance.yahoo.com -I -s | head -3
+# 验证代理链路通畅
+curl --socks5 127.0.0.1:1080 http://httpbin.org/ip -s   # 测试 ss-local
+curl --proxy http://127.0.0.1:8118 http://httpbin.org/ip -s  # 测试 Privoxy
 
 # 查看代理日志
-tail -20 /var/log/ss-local.log
+journalctl -u ss-local -n 30
 journalctl -u privoxy -n 30
+```
+
+### 更新 Shadowsocks 节点配置
+
+SS 服务商会不定期更换端口和密码，配置失效后 yfinance 会报 `YFRateLimitError`。
+
+**获取最新配置**：从 ssconf 链接拉取（链接见团队记录）：
+```bash
+curl -s "https://ss.wawaapp.net/t/520fa9d967e39ce4b19a54c88312e52d2991ecf63894998e00f031308"
+# 返回示例：{"server":"...","server_port":7060,"password":"...","method":"aes-128-gcm"}
+```
+
+**更新配置并重启**（在 ECS 上执行）：
+```bash
+nano /etc/shadowsocks-libev/local.json
+# 更新 server_port 和 password
+
+systemctl restart ss-local
+
+# 验证
+curl --socks5 127.0.0.1:1080 http://httpbin.org/ip -s
 ```
 
 ### 重新部署（代码更新后）
@@ -273,16 +296,29 @@ python3 backtest_engine.py --start 2025-01-01 --end 2025-12-31 --resume
 ## 八、常见问题
 
 ### Q：yfinance 报 YFRateLimitError
-服务器 IP 被 Yahoo Finance 限速。检查代理是否正常：
+服务器 IP 被 Yahoo Finance 限速，根本原因通常是**代理链路断了**，直连 IP 被封。排查步骤：
+
+**第一步：检查 ss-local 是否正常转发**
 ```bash
-systemctl status privoxy
-curl --proxy http://127.0.0.1:8118 https://finance.yahoo.com -I -s | head -3
+curl --socks5 127.0.0.1:1080 http://httpbin.org/ip -s
+# 正常应返回代理出口 IP（非 ECS 本机 IP）；返回空或超时则说明 ss-local 异常
 ```
-如代理异常，重启：
+
+**第二步：如果 ss-local 异常，检查 SS 节点配置是否过期**
+
+SS 服务商会不定期更换端口/密码，通过 ssconf 链接拉取最新配置：
 ```bash
-pkill -f ss-local && sleep 1
-nohup ss-local -c /etc/shadowsocks-libev/local.json > /var/log/ss-local.log 2>&1 &
-systemctl restart privoxy
+curl -s "https://ss.wawaapp.net/t/520fa9d967e39ce4b19a54c88312e52d2991ecf63894998e00f031308"
+```
+对比 `/etc/shadowsocks-libev/local.json` 里的 `server_port` 和 `password`，若不一致则更新后重启：
+```bash
+nano /etc/shadowsocks-libev/local.json
+systemctl restart ss-local
+```
+
+**第三步：验证整条链路**
+```bash
+curl --proxy http://127.0.0.1:8118 http://httpbin.org/ip -s   # Privoxy 通了则代理链路正常
 ```
 
 ### Q：飞书发送失败
@@ -298,11 +334,14 @@ cat gold_api_output.txt
 ```
 
 ### Q：服务器重启后代理失效
-每次重启需重新启动 ss-local（privoxy 开机自启）：
+ss-local 已配置为 systemd 服务并设置开机自启，重启后会自动恢复，无需手动操作。
+
+若发现 ss-local 未运行（`systemctl status ss-local` 显示 inactive），执行：
 ```bash
-nohup ss-local -c /etc/shadowsocks-libev/local.json > /var/log/ss-local.log 2>&1 &
+systemctl start ss-local
 ```
-建议创建 systemd 服务让 ss-local 开机自启（见下方）：
+
+如需重新配置 systemd 服务（机器迁移或重装系统时）：
 ```bash
 cat > /etc/systemd/system/ss-local.service << EOF
 [Unit]
@@ -318,6 +357,7 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
+systemctl daemon-reload
 systemctl enable ss-local
 systemctl start ss-local
 ```

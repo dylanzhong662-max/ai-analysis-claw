@@ -164,10 +164,8 @@ def _make_session() -> curl_requests.Session:
     """创建禁用 SSL 验证的 curl_cffi session（yfinance 新版要求）
     支持通过 HTTPS_PROXY / HTTP_PROXY 环境变量配置代理，用于云服务器 IP 被限速的场景。
     """
-    session = curl_requests.Session(impersonate="chrome", verify=False)
     proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
-    if proxy:
-        session.proxies = {"http": proxy, "https": proxy}
+    session = curl_requests.Session(impersonate="chrome", verify=False, proxy=proxy)
     return session
 
 

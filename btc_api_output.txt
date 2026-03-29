@@ -1,17 +1,17 @@
 ```json
 {
   "period": "Strategic",
-  "analysis_date": "2026-03-27",
+  "analysis_date": "2026-03-29",
   "btc_cycle_regime": "Late-Bull",
   "macro_environment": "Risk-Off",
-  "downside_risk_level": "Medium",
+  "downside_risk_level": "High",
   "sentiment_summary": {
-    "fear_greed_index": 13,
+    "fear_greed_index": 9,
     "fear_greed_classification": "Extreme Fear",
-    "funding_rate_current": -0.011,
+    "funding_rate_current": -0.0004,
     "funding_rate_signal": "中性",
-    "ndx_correlation": 0.588,
-    "correlation_risk": "中"
+    "ndx_correlation": 0.619,
+    "correlation_risk": "高"
   },
   "asset_analysis": [
     {
@@ -19,27 +19,27 @@
       "holding_timeframe": "6mo-3yr",
       "regime": "Trending",
       "action": "long",
-      "bias_score": 0.55,
+      "bias_score": 0.6,
       "position_sizing": "quarter",
-      "entry_zone": "64057 - 69209",
+      "entry_zone": "64021 - 69209",
       "profit_target": 117337,
-      "stop_loss": 49457,
-      "risk_reward_ratio": 2.95,
+      "stop_loss": 49319,
+      "risk_reward_ratio": 2.93,
       "key_bearish_risks": [
-        {"risk_id": 1, "risk_type": "200WMA跌破", "severity": "Medium", "trigger_level": "59250.0", "current_status": "当前价格高于200WMA 12.5%，但宏观压力下存在跌破风险"},
-        {"risk_id": 2, "risk_type": "月线RSI超买", "severity": "Low", "trigger_level": "RSI>80", "current_status": "当前月线RSI=41.8，处于中性区间，无超买风险"},
-        {"risk_id": 3, "risk_type": "宏观流动性收紧", "severity": "Medium-High", "trigger_level": "10Y收益率持续上行+美联储鹰派", "current_status": "10Y收益率4.42%且趋势向上，美元强势，流动性环境偏紧"},
-        {"risk_id": 4, "risk_type": "美元强势", "severity": "Medium", "trigger_level": "DXY>100且趋势向上", "current_status": "DXY=100.09 > EMA20=99.29，短期趋势向上，压制风险资产"},
-        {"risk_id": 5, "risk_type": "纳指崩盘传导", "severity": "Medium", "trigger_level": "NDX下跌>10%", "current_status": "NDX近10日下跌3.3%，与BTC相关系数0.588，存在同步下跌风险"},
-        {"risk_id": 6, "risk_type": "监管/黑天鹅", "severity": "Low", "trigger_level": "重大监管事件", "current_status": "ETF运行稳定，暂无重大监管黑天鹅"},
-        {"risk_id": 7, "risk_type": "减半周期见顶", "severity": "Medium", "trigger_level": "周期>45%且月RSI>80", "current_status": "周期进度48.4%已进入历史顶部窗口，但月RSI=41.8未过热，存在时间窗口风险"}
+        {"risk_id": 1, "risk_type": "200WMA跌破", "severity": "Medium", "trigger_level": "59249.0", "current_status": "当前价格高于200WMA 12.4%，但宏观压力增加跌破风险"},
+        {"risk_id": 2, "risk_type": "月线RSI超买", "severity": "Low", "trigger_level": "RSI>80", "current_status": "当前月线RSI=41.8，无超买风险"},
+        {"risk_id": 3, "risk_type": "宏观流动性收紧", "severity": "High", "trigger_level": "10Y收益率持续上行、M2收缩", "current_status": "10Y收益率升至4.44%（+5.2% 10日），美元强势，流动性环境偏紧"},
+        {"risk_id": 4, "risk_type": "美元强势", "severity": "Medium", "trigger_level": "DXY>100并趋势向上", "current_status": "DXY=100.15高于EMA20，趋势向上，压制风险资产"},
+        {"risk_id": 5, "risk_type": "纳指崩盘传导", "severity": "High", "trigger_level": "NDX持续下跌", "current_status": "NDX 10日跌幅6.2%，与BTC相关系数0.619，同步下跌风险高"},
+        {"risk_id": 6, "risk_type": "监管/黑天鹅", "severity": "Medium", "trigger_level": "重大监管事件", "current_status": "ETF政策相对稳定，但宏观不确定性仍存"},
+        {"risk_id": 7, "risk_type": "减半周期见顶", "severity": "Medium", "trigger_level": "周期>45%且月RSI>80", "current_status": "周期进度48.5%，但月RSI未超买，处于历史牛市高峰区需警惕"}
       ],
-      "cycle_context": "减半周期进度48.4%，处于历史牛市顶部高发窗口（减半后12-24个月）。但当前月线RSI=41.8中性，价格从ATH回调46%，并未出现典型顶部过热特征。价格仍高于200WMA，长期牛市结构未破，但周期时间窗口警示顶部风险。",
-      "macro_catalyst": "宏观流动性收紧（美元强势、10Y收益率上行）压制风险资产，与纳斯达克高相关性（0.588）带来传导风险。但极度恐惧情绪已部分反映宏观压力，若流动性预期转向（美联储降息）将构成强劲催化剂。",
-      "technical_setup": "月线：RSI中性，MACD高位回落但未死叉。周线：趋势性下跌（MACD<-9000，ADX>35），价格低于所有主要周均线，RSI超卖（32.3）。日线：空头排列（价格<EMA20<EMA50<EMA200），RSI-7接近超卖（33.8），BB %B接近下轨（0.085），存在技术性反弹需求。",
-      "sentiment_assessment": "恐惧贪婪指数13（极度恐惧）是经典反向做多信号。资金费率略负（-0.011%）显示市场偏空但不极端，未出现空头挤压风险。ETH/BTC比率下降显示资金回流BTC，主导性增强。",
-      "invalidation_condition": "价格周线收盘跌破200WMA（59250），则长期牛市结构破坏，多单止损离场。",
-      "justification": "①减半周期：处于48.4%进度，历史顶部窗口，但月线RSI中性且价格已深度回调，未出现泡沫特征。②宏观流动性：美元强势、利率上行构成压制，但极度恐惧情绪已部分定价；若美联储转向将催化上涨。③纳指相关性：0.588的中高相关性带来传导风险，但纳指近期跌幅（-3.3%）相对温和。④技术结构：价格高于200WMA支撑，周线超卖，日线接近布林下轨，存在均值回归动能。⑤情绪指标：极度恐惧（13）是强烈反向做多信号，配合资金费率中性，提供高胜率布局窗口。综合评估，尽管处于牛市后期且宏观承压，但极端情绪与技术超卖支持战略级做多布局，以200WMA为最终防线。"
+      "cycle_context": "减半周期进度48.5%，处于历史牛市高峰区（泡沫加速/顶部分配期），但月线RSI中性（41.8），价格仍高于200WMA（+12.4%），长期牛市结构未完全破坏。",
+      "macro_catalyst": "宏观流动性收紧（美元强势、10Y收益率上行）、纳指下跌传导风险高，但市场情绪极度恐惧可能已部分定价，若宏观边际改善或情绪修复将推动反弹。",
+      "technical_setup": "月线RSI中性，周线趋势下跌（MACD负值扩大、ADX>20显示下跌趋势），日线出现超卖反弹迹象（RSI从低点回升）。价格高于200WMA（59,249）提供长期关键支撑，但短期均线空头排列。",
+      "sentiment_assessment": "恐惧贪婪指数极度恐惧（9），历史反向指标预示底部区域；资金费率略负（-0.0004%），市场情绪中性偏空，未出现极端空头挤压。情绪面极度悲观为战略做多提供 contrarian 信号。",
+      "invalidation_condition": "日线收盘价有效跌破200WMA（59249）且周线确认，则做多逻辑失效，需止损或转向。",
+      "justification": "①减半周期：处于48.5%进度，历史牛市高峰区，但月线RSI未超买，价格仍高于200WMA，长期牛市结构未破。②宏观流动性：美元强势、收益率上行、纳指下跌构成压力，但极度恐惧情绪可能已反映部分利空。③纳指相关性：与NDX相关系数0.619，纳指近期下跌6.2%传导风险高，但情绪极度悲观下反向信号增强。④技术结构：价格高于200WMA（+12.4%），周线下跌趋势但日线超卖，200WMA为关键支撑。⑤情绪指标：恐惧贪婪指数9（极端恐惧），资金费率略负，市场情绪极度悲观，为战略做多提供 contrarian 入场机会。综合，虽下行风险高，但极端恐惧、关键支撑上方、R:R≥2.9，适合小仓位战略做多布局。"
     }
   ]
 }

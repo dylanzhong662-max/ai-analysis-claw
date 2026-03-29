@@ -339,10 +339,8 @@ Now analyze the GOOGL market data provided below."""
 # ─────────────────────────────────────────────
 
 def _make_session():
-    session = curl_requests.Session(impersonate="chrome", verify=False)
     proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
-    if proxy:
-        session.proxies = {"http": proxy, "https": proxy}
+    session = curl_requests.Session(impersonate="chrome", verify=False, proxy=proxy)
     return session
 
 
