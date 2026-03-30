@@ -1,0 +1,21 @@
+{
+  "_comment": "当前持仓文件，由用户手动维护或由 portfolio_tracker.py 更新。每次 LLM 信号触发下单后请及时更新。",
+  "positions": [
+    {
+      "_example": true,
+      "asset":          "GOLD",
+      "type":           "long",
+      "entry_price":    3200.0,
+      "entry_date":     "2026-03-15",
+      "quantity":       0.01,
+      "cost_basis_usd": 32.0,
+      "stop_loss":      3100.0,
+      "profit_target":  3500.0,
+      "trailing_stop":  false,
+      "source_signal":  "gold_api_output.txt",
+      "exchange":       "Binance",
+      "symbol":         "PAXGUSDT",
+      "notes":          "示例持仓，请替换为真实数据后删除 _example 字段"
+    }
+  ]
+}

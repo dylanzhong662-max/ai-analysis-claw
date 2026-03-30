@@ -1,0 +1,119 @@
+你是一名资深宏观量化分析师，现在需要对以下 6 个资产的个股分析信号进行**横向比较和综合排名**。
+
+今日日期：2026-03-30
+
+---
+
+## 各资产信号摘要
+
+
+### GOOGL（Alphabet / Google | 板块: Technology/InternetAds）
+- **信号**: `no_trade`  |  **bias_score**: 0.52  |  **市场状态**: Trending-Down
+- **整体市场情绪**: Risk-Off
+- **entry_zone**: 264.9 – 283.77  |  **stop_loss**: None  |  **profit_target**: None  |  **R:R**: None
+- **核心逻辑**: 技术面显示明确的下跌趋势（价格低于EMA20、-DI>+DI、OBV下降），且宏观（利率上升）、板块（科技跑输）与个股相对强势形成三层冲突，bias_score上限0.50。虽基本面优异（盈利连续超预期、营收加速、估值合理），且技术超卖（BB%B跌破下轨、Stochastic极低）可能引发反弹，但中长线入场需等待更明确的多头信号（如周线MACD拐头、价格收复EMA20）。当前VIX>31处于恐慌区
+
+### MSFT（Microsoft | 板块: Technology/CloudAI）
+- **信号**: `no_trade`  |  **bias_score**: 0.48  |  **市场状态**: Trending-Down
+- **整体市场情绪**: Risk-Off
+- **entry_zone**: 344.73 – 368.81  |  **stop_loss**: None  |  **profit_target**: None  |  **R:R**: None
+- **核心逻辑**: 技术面与宏观面强烈冲突：技术指标全线空头（五层对齐下跌），但基本面极其强劲（盈利连续超预期、营收加速、分析师极度看多）。当前价格已跌至52周低点，周线RSI进入超卖区，存在技术性反弹可能，但下降趋势明确（ADX>25, MACD负值扩大）。中长线视角下，宏观利率环境是主要压制因素，而基本面提供了深跌后的长期价值。然而，根据框架规则：1）周线MACD<0且Trending-Down制度下禁止做多；2
+
+### NVDA（NVIDIA | 板块: Technology/Semiconductors）
+- **信号**: `no_trade`  |  **bias_score**: 0.4  |  **市场状态**: Consolidation
+- **整体市场情绪**: Risk-Off
+- **entry_zone**: 160.69 – 174.35  |  **stop_loss**: None  |  **profit_target**: None  |  **R:R**: None
+- **核心逻辑**: 五层市场分析中四层（宏观、指数、板块、个股）均发出利空信号，仅长期技术趋势向上但短期调整压力显著。ADX<20指示弱趋势震荡，价格跌破周线EMA-20和EMA-50并跑输QQQ，OBV下降显示资金流出。基本面虽盈利高增长且分析师极度看多，但季度营收减速、高利率环境及板块轮动不利构成压制。bias_score经规则计算后仅0.40（因ADX上限0.45、多层级冲突、营收减速扣分、VIX恐慌减分等），
+
+### AAPL（Apple | 板块: Technology/Consumer）
+- **信号**: `no_trade`  |  **bias_score**: 0.48  |  **市场状态**: Consolidation
+- **整体市场情绪**: Risk-Off
+- **entry_zone**: None  |  **stop_loss**: None  |  **profit_target**: None  |  **R:R**: None
+- **核心逻辑**: 综合三维分析，当前AAPL处于一个复杂的交汇点。技术面：长期牛市架构（月线向上、周线EMA50/200金叉）完好，但短期陷入调整（价格低于EMA20、ADX弱趋势、OBV背离），显示为长期上升趋势中的健康盘整或短期回调，周线EMA50（246.49）是关键支撑。基本面：极为强劲，盈利连续超预期、营收加速、分析师目标价空间充足，提供了坚实的中长线价值基底。然而，宏观与市场环境构成主要阻力：高利率环境
+
+### META（Meta Platforms | 板块: Technology/SocialMedia）
+- **信号**: `no_trade`  |  **bias_score**: 0.48  |  **市场状态**: Consolidation
+- **整体市场情绪**: Risk-Off
+- **entry_zone**: 501.04 – 550.4  |  **stop_loss**: None  |  **profit_target**: None  |  **R:R**: None
+- **核心逻辑**: 综合三维分析：1）技术面：处于明确的下跌趋势，所有关键指标偏空，虽严重超卖但无任何转势信号，ADX显示趋势弱化进入盘整。2）基本面与估值：分析师共识极度乐观，增长预期强劲，估值合理，与疲软股价形成巨大背离，构成中长期潜在支撑。3）市场结构：宏观（高利率）、指数（QQQ跌）、板块（XLK弱）、个股（跑输）四重利空形成共振，仅基本面预期构成冲突。根据框架规则，存在两层以上冲突，bias_score上限
+
+### AMZN（Amazon | 板块: Technology/CloudEcommerce）
+- **信号**: `no_trade`  |  **bias_score**: 0.35  |  **市场状态**: Consolidation
+- **整体市场情绪**: Risk-Off
+- **entry_zone**: 192.06 – 206.62  |  **stop_loss**: None  |  **profit_target**: None  |  **R:R**: None
+- **核心逻辑**: 三维分析显示：技术面空头主导（周线EMA空排、MACD负值、跑输QQQ），但月线长期结构未坏；宏观面利率上升压制估值，板块资金流出；基本面依然健康（营收加速、分析师高目标价）。然而，五层市场层级出现四层利空冲突，ADX<20指示震荡制度，且bias_score经规则过滤后仅为0.35（OBV背离降0.10，ADX上限0.45，多层冲突上限0.50），低于0.50交易门槛。此外，周线MACD<0禁止
+
+
+---
+
+## 分析任务
+
+请基于上述所有信号，完成以下分析：
+
+### 1. 宏观主题识别
+当前市场的 1-2 个核心驱动主题是什么？（如：AI 算力超级周期、贵金属避险、大宗商品价格回升等）
+
+### 2. 板块强弱排名
+把上述资产按板块（Commodities/PreciousMetals、Technology/AI、Crypto 等）分组，
+给出各板块的综合评分（强 / 中 / 弱），并说明核心逻辑。
+
+### 3. 个资产机会排名（Top 5）
+从所有 `action != no_trade` 的资产中，选出最强的 5 个机会，按机会质量从高到低排列，说明选择依据。
+
+### 4. 相关性风险提示
+识别哪些资产之间存在高度相关性（如 GOLD 和 SILVER），若同时持仓需注意集中度风险。
+
+### 5. 观望资产
+列出当前信号为 no_trade 或数据不可用的资产，简要说明等待的触发条件。
+
+---
+
+请严格按照以下 JSON 格式输出（不要输出 markdown 代码块以外的内容）：
+
+```json
+{
+  "scan_date": "2026-03-30",
+  "macro_themes": [
+    {
+      "theme": "<主题名称>",
+      "description": "<100字以内描述>",
+      "beneficiary_assets": ["<资产key列表>"]
+    }
+  ],
+  "sector_ranking": [
+    {
+      "sector": "<板块名>",
+      "strength": "Strong | Neutral | Weak",
+      "assets": ["<资产key列表>"],
+      "rationale": "<50字以内>"
+    }
+  ],
+  "top_opportunities": [
+    {
+      "rank": 1,
+      "asset": "<资产key>",
+      "action": "long | short",
+      "bias_score": <0.0-1.0>,
+      "entry_zone": "<价格区间>",
+      "stop_loss": <数字或null>,
+      "profit_target": <数字或null>,
+      "risk_reward_ratio": <数字或null>,
+      "rationale": "<为什么排第X，核心逻辑，≤100字>"
+    }
+  ],
+  "correlation_risks": [
+    {
+      "assets": ["<资产A>", "<资产B>"],
+      "correlation_type": "<正相关/负相关/同受DXY影响等>",
+      "risk_note": "<持仓风险说明>"
+    }
+  ],
+  "watchlist": [
+    {
+      "asset": "<资产key>",
+      "reason": "<no_trade原因>",
+      "trigger_condition": "<什么情况下可以入场>"
+    }
+  ]
+}
+```

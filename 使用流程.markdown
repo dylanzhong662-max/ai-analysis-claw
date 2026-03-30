@@ -1,125 +1,157 @@
 ## 使用流程
 
-**使用流程**                                                                 
+---
 
-​                                                                      
+### 单资产分析（原有功能）
 
- **第一步：生成分析提示词**                                                          
+#### 黄金
 
-   
-
- 在项目目录下运行脚本：
-
-```                                                          
-\# 只生成提示词文件（默认）
-
- python3 gold_analysis.py
-
-
-
- \# 调用默认 Claude 模型
-
- python3 gold_analysis.py --api
-
-
-
- \# 调用 DeepSeek R1（推理模型）
-
- python3 gold_analysis.py --api --model deepseek-reasoner
-
-
-
- \# 调用 DeepSeek Chat
-
- python3 gold_analysis.py --api --model deepseek-chat
-
-
-
- \# 指定其他 Claude 模型
-
- python3 gold_analysis.py --api --model claude-opus-4-6
+```bash
+python3 gold_analysis.py                              # 只生成提示词文件
+python3 gold_analysis.py --api                        # 调用 Claude 直接分析
+python3 gold_analysis.py --api --model deepseek-reasoner
+python3 gold_analysis.py --api --trade                # 分析 + 自动下单（PAXG/USDT）
+python3 gold_analysis.py --api --trade --dry-run      # 模拟下单（不实际成交）
 ```
 
-Btc                                                                                                                                                       
+#### BTC
 
-``` 
+```bash
+python3 btc_analysis.py --api
 python3 btc_analysis.py --api --model deepseek-reasoner
 ```
 
-股票:
+#### 科技股（GOOGL / MSFT / NVDA / AAPL / META / AMZN）
 
-```
-python3 tech_stock_analysis.py --ticker GOOGL --api --model deepseek-reasoner
-
-python3 tech_stock_analysis.py --ticker NVDA --api --model           
-      deepseek-reasoner
-```
-
-
-
-脚本会自动完成以下工作：                                                         
-
- \- 从 Yahoo Finance 拉取黄金日线/周线数据                                                 
-
- \- 获取 DXY、10年期美债收益率、VIX、白银 4个宏观数据源                                          
-
- \- 计算所有技术指标（MACD、RSI、ADX、Stochastic、布林带、OBV 等）
-
- \- 读取 backtest_results/performance.csv，注入历史胜率反馈                                        
-
- \- 将完整分析请求保存到 gold_prompt_output.txt，并打印到终端                                       
-
-​                                                                      
-
- \---                                                                   
-
- **第二步：把提示词发给 Claude**                                                       
-
-​                                                                      
-
- 打开 gold_prompt_output.txt，把全部内容复制，粘贴到 Claude.ai 对话框发送。                                
-
-​                                                                      
-
- 你当前所在的这个对话框（Claude Code）也可以直接分析，就像本次对话开头你做的那样。                            
-
-​                                                                      
-
- \---                                                                   
-
- **第三步：把 Claude 返回的 JSON 存档**             
-
-​                                                                      
-
- Claude 会返回一个 JSON 信号。把它保存下来，后续回测需要用到。
-
-​                                                                      
-
- \---                                                                   
-
- **回测完成后（已有 signals.csv）**                                                      
-
-​                                                                      
-
- 每次新的回测跑完后，performance.csv 会自动更新。**下次再运行** **python3 gold_analysis.py** 
-
- **时，脚本会自动读取最新胜率并注入到提示词里**，不需要手动操作。                                       
-
-​                               
-
- 终端会显示类似：                                                             
-
-​                               
-
- 已载入回测指标 — 胜率: 20.7% 盈利因子: 1.56 连续亏损: 1 次                                       
-
-​                                                                      
-
- 如果胜率低于 40% 或连续亏损 ≥ 2 次，提示词里会自动出现对应的警告，Claude 会据此收紧开仓标准 
-
-```
-export FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/1b11f676-90d4-4d63-b235-bc693adf4cc3
+```bash
+python3 tech_stock_analysis.py --ticker GOOGL --api
+python3 tech_stock_analysis.py --ticker NVDA --api --model deepseek-reasoner
+python3 tech_stock_analysis.py --ticker MSFT --api
+python3 tech_stock_analysis.py --ticker AAPL --api
 ```
 
+#### 大宗商品 ETF（白银 / 铜 / 稀土钨 / 原油）
+
+```bash
+python3 tech_stock_analysis.py --ticker SLV  --api   # 白银
+python3 tech_stock_analysis.py --ticker COPX --api   # 铜矿
+python3 tech_stock_analysis.py --ticker REMX --api   # 稀土/钨
+python3 tech_stock_analysis.py --ticker USO  --api   # 原油
 ```
-echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBfRxMPM0aSJxpKbVjQqElDDVbV2QMQG7RJzxkYHTLi1" >> ~/.ssh/authorized_keys
+
+---
+
+### 多资产横向扫描（新功能）
+
+一次性扫描多个资产，LLM 输出跨资产机会排名和板块强弱判断。
+
+```bash
+# 快速扫描（GOLD + BTC + NVDA + MSFT，日常推荐）
+python3 market_scan.py --api --model deepseek-reasoner
+
+# 扫描全部科技股
+python3 market_scan.py --group tech --api --model deepseek-reasoner
+
+# 扫描全部大宗商品
+python3 market_scan.py --group metals --api --model deepseek-reasoner
+
+# 扫描所有配置资产（耗时较长）
+python3 market_scan.py --group all --api
+
+# 自定义资产组合
+python3 market_scan.py --assets GOLD NVDA AAPL SLV --api
+
+# 只做汇总排名（跳过重新分析，直接读取已有输出文件）
+python3 market_scan.py --group tech --skip-individual --api
+```
+
+输出文件：
+- `market_scan_report.txt` — 完整扫描报告（原始文本）
+- `market_scan_output.json` — 结构化排名结果（机器可读）
+
+---
+
+### 持仓跟踪（新功能）
+
+跟踪当前持仓状态，结合最新 LLM 信号给出具体操作建议。
+
+**第一步：维护持仓文件**
+
+编辑 `portfolio.json`，填入真实持仓（删除 `_example` 示例条目）：
+
+```json
+{
+  "positions": [
+    {
+      "asset":          "GOLD",
+      "type":           "long",
+      "entry_price":    3200.0,
+      "entry_date":     "2026-03-15",
+      "quantity":       0.01,
+      "stop_loss":      3100.0,
+      "profit_target":  3500.0,
+      "exchange":       "Binance",
+      "symbol":         "PAXGUSDT"
+    }
+  ]
+}
+```
+
+**第二步：运行跟踪器**
+
+```bash
+# 查看持仓状态（使用已有信号文件）
+python3 portfolio_tracker.py
+
+# 先刷新信号再评估
+python3 portfolio_tracker.py --update-signals
+
+# 导出订单文件（供交易接口读取）
+python3 portfolio_tracker.py --export-orders
+```
+
+输出文件：
+- `portfolio_status.json` — 每个持仓的状态 + 操作建议
+- `orders.json`（`--export-orders` 时）— 待执行订单列表
+
+操作建议说明：
+
+| 状态 | 含义 |
+|------|------|
+| `HOLD` | 维持持仓，无异常 |
+| `STOP_TRIGGERED` | 价格触及止损，建议市价平仓 |
+| `TARGET_REACHED` | 价格到达目标，建议限价锁利 |
+| `SIGNAL_REVERSED` | LLM 信号方向反转，建议平仓 |
+| `REDUCE` | 信号转为观望，建议减半仓 |
+
+---
+
+### 回测系统
+
+```bash
+# 黄金回测（生成提示词，不需要 API Key）
+python3 backtest_engine.py --generate --start 2024-01-01 --end 2024-12-31 --step 5
+
+# 评估已有手动回测响应
+python3 backtest_engine.py --evaluate
+
+# 全自动回测（需要 DeepSeek API Key）
+python3 backtest_engine.py --start 2025-01-01 --end 2025-12-31
+
+# 断点续跑
+python3 backtest_engine.py --start 2025-01-01 --end 2025-12-31 --resume
+```
+
+回测完成后 `backtest_results/performance.csv` 自动更新，下次运行 `gold_analysis.py` 时会读取最新胜率并注入提示词，不需要手动操作。
+
+---
+
+### 飞书推送
+
+```bash
+export FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/...
+
+python3 feishu_notifier.py --mode daily    # 推送当日报告
+python3 feishu_notifier.py --mode weekly   # 推送周报
+python3 feishu_notifier.py --mode test     # 测试连通性
+```

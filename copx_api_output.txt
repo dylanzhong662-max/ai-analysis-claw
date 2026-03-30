@@ -1,0 +1,47 @@
+```json
+{
+  "period": "Weekly",
+  "stock_ticker": "COPX",
+  "overall_market_sentiment": "Risk-Off",
+  "qqq_assessment": "QQQ近期下跌7.7%，但EMA仍为金叉多头结构，显示为长期牛市中的技术性回调。COPX作为铜矿ETF，与科技股指数相关性较低，但整体市场风险偏好下降可能对商品类ETF产生间接压力。",
+  "sector_assessment": "XLK板块相对QQQ表现略差（-0.22%），科技板块轮动不利，但COPX属于材料/商品板块，不受科技板块直接影响。需关注整体成长股估值压力向周期品的传导。",
+  "macro_rate_environment": "10Y收益率上升至4.44%（近8周+5.6%），美联储政策偏鹰，高利率环境对成长股估值形成压制。铜作为工业金属，对经济增速敏感，利率上升可能预示通胀压力和经济过热，对铜价有结构性支撑，但短期流动性收紧可能压制商品价格。",
+  "earnings_risk_flag": false,
+  "earnings_days_away": null,
+  "asset_analysis": [
+    {
+      "asset": "COPX",
+      "regime": "Trending-Up",
+      "action": "no_trade",
+      "bias_score": 0.45,
+      "entry_zone": "68.01 – 75.21",
+      "profit_target": null,
+      "stop_loss": null,
+      "risk_reward_ratio": null,
+      "invalidation_condition": "价格跌破EMA50周线（63.3）并持续两周，或周线MACD下穿零轴。",
+      "estimated_holding_weeks": null,
+      "price_action_analysis": {
+        "trend_structure": "长期多头结构稳固：价格>EMA50(63.3)>EMA200(48.54)，EMA50/200金叉。短期回调：价格低于EMA20(74.63)但仍在EMA50之上，属于牛市中的技术性调整。月线MACD(10.84)为正但略微回落，长期趋势未破坏。",
+        "momentum_signals": "周线MACD(5.77)为正但快速收敛，多头动能减弱。RSI-14(50.16)中性，RSI-7(39.73)偏弱但未超卖。Stochastic(9.9/17.6)极度超卖区域，存在短期反弹可能。ADX(46.8)显示强趋势但已从高点回落。",
+        "volatility_context": "周线ATR=7.2，BB带宽55.87%扩张，表明波动率增大、趋势加速。BB %B=0.407，价格位于布林带中下轨，短期偏弱但未破下轨。",
+        "volume_obv": "近6周OBV下降，与价格从高点回落形成量价背离，暗示机构派发或获利了结，为负面信号。",
+        "relative_strength_vs_qqq": "20周相对强弱+30.33%，显著跑赢QQQ，显示其独立强势。但近6周随大盘回调，相对强度可能见顶回落。"
+      },
+      "structured_analysis": {
+        "market_hierarchy_alignment": "存在两层关键冲突：L1宏观（利率上升利空）与L4个股（跑赢大盘）冲突；L2指数（QQQ下跌）与L4冲突。L3板块（科技板块落后）对COPX影响间接。五层未形成同向共振。",
+        "earnings_cycle_phase": "无近期财报数据，财报风险较低。",
+        "sector_rotation_signal": "XLK跑输QQQ，科技板块资金流出可能部分流向商品/周期板块，对COPX有一定支撑，但非直接利好。",
+        "regime_justification": "判定为Trending-Up的核心依据：长期EMA多头排列（50>200金叉），价格高于EMA50和EMA200，月线MACD为正。尽管短期回调，但未跌破关键中期均线，长期上升趋势结构完整。"
+      },
+      "intelligence_analysis": {
+        "earnings_estimate_trend": "财报和估值数据缺失，无法评估盈利趋势对bias_score的影响。",
+        "analyst_consensus": "无可用分析师评级和目标价数据。",
+        "valuation_context": "估值数据缺失，无法判断是否合理。",
+        "macro_catalyst": "核心驱动逻辑：1) 全球能源转型（电动化、电网投资）对铜的长期结构性需求；2) 中国稳增长政策对基建和房地产的支持可能提振铜需求；3) 供给侧扰动（智利/秘鲁矿山问题）可能收紧供给。短期受高利率和全球经济增长担忧压制。",
+        "competitive_intelligence": "作为铜矿ETF，竞争优势在于一篮子铜矿公司分散风险。需密切关注：全球制造业PMI（若>50且上升则利好）、中国铜进口数据、LME/COMEX库存水平（低库存支撑价格）、美元走势（美元强势利空商品）。当前宏观环境对商品复杂：高利率压制但经济过热预期支撑。"
+      },
+      "justification": "综合三维分析：技术面长期趋势向上但短期处于深度回调（自高点-25.2%），量价背离和动能减弱显示调整未尽。结构化层面出现两层冲突（宏观利空 vs 个股跑赢），市场环境Risk-Off（VIX>31，QQQ下跌）。情报面缺乏基本面数据支撑，但铜的长期结构性需求故事完整。尽管长期看好，但当前时机不佳：1) bias_score经规则过滤后仅0.45（冲突层级上限0.5，OBV背离-0.1，VIX>25 -0.05），低于0.5的交易阈值；2) 短期技术面尚未出现明确止跌信号（如RSI底背离、价格重新站上EMA20）。建议等待更明确的企稳信号，如价格在EMA50(63.3)附近获得支撑并出现周线看涨吞没形态，或MACD重新金叉。当前宜观望。"
+    }
+  ]
+}
+```

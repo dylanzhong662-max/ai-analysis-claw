@@ -175,22 +175,27 @@ def fetch_gold_data():
 
     session = _make_session()
 
-    # 日线：6个月（延长以支持52周高低位和更长指标序列）
+    # 日线：3个月（仅用于近期动量参考及当前价格）
     daily = yf.download(
-        ticker, period="6mo", interval="1d",
+        ticker, period="3mo", interval="1d",
         auto_adjust=True, progress=False, session=session
     )
-    # 周线：1年
+    # 周线：2年（主分析时间框架）
     weekly = yf.download(
-        ticker, period="1y", interval="1wk",
+        ticker, period="2y", interval="1wk",
+        auto_adjust=True, progress=False, session=session
+    )
+    # 月线：5年（长期趋势背景）
+    monthly = yf.download(
+        ticker, period="5y", interval="1mo",
         auto_adjust=True, progress=False, session=session
     )
 
-    if daily.empty or weekly.empty:
+    if daily.empty or weekly.empty or monthly.empty:
         raise ValueError("数据获取失败，请检查网络或 ticker 是否正确")
 
-    print(f"日线数据：{len(daily)} 条  |  周线数据：{len(weekly)} 条")
-    return daily, weekly
+    print(f"日线数据：{len(daily)} 条  |  周线数据：{len(weekly)} 条  |  月线数据：{len(monthly)} 条")
+    return daily, weekly, monthly
 
 
 def fetch_macro_data() -> dict:
@@ -415,86 +420,100 @@ def load_perf_metrics(perf_csv: str = "backtest_results/performance.csv") -> dic
 # 生成提示词文本
 # ─────────────────────────────────────────────
 
-def build_prompt(daily: pd.DataFrame, weekly: pd.DataFrame,
+def build_prompt(daily: pd.DataFrame, weekly: pd.DataFrame, monthly: pd.DataFrame,
                  perf_metrics: dict | None = None,
                  macro: dict | None = None,
                  paxg: dict | None = None) -> str:
-    d_ind = compute_indicators(daily)
+    # ── 周线为主分析框架（中长期：2周 ~ 3个月）──
     w_ind = compute_indicators(weekly)
+    m_ind = compute_indicators(monthly)
+    d_ind = compute_indicators(daily)   # 仅用于近期动量参考及当前价格
 
-    close_d = daily['Close'].squeeze()
-    current_price   = round(float(close_d.iloc[-1]), 2)
-    current_ema20   = round(float(d_ind['ema20'].iloc[-1]), 2)
-    current_macd    = round(float(d_ind['macd'].iloc[-1]), 2)
-    current_rsi7    = round(float(d_ind['rsi7'].iloc[-1]), 2)
-    current_rsi14   = round(float(d_ind['rsi14'].iloc[-1]), 2)
-
-    last_price, day_chg, week_chg, price_5d_ago = weekly_change(daily)
-
-    # 日线最新交易日 OHLCV
-    last_day = daily.iloc[-1]
-    today_open  = round(float(last_day['Open'].squeeze()), 2)
-    today_high  = round(float(last_day['High'].squeeze()), 2)
-    today_low   = round(float(last_day['Low'].squeeze()), 2)
-    today_close = current_price
-    today_vol   = int(last_day['Volume'].squeeze())
-
-    # 日线序列（最近15条）
-    n = 15
-    daily_closes  = fmt_series(close_d, 2, n)
-    daily_ema20   = fmt_series(d_ind['ema20'], 2, n)
-    daily_macd    = fmt_series(d_ind['macd'], 2, n)
-    daily_rsi7    = fmt_series(d_ind['rsi7'], 2, n)
-    daily_rsi14   = fmt_series(d_ind['rsi14'], 2, n)
-
-    # 周线序列（最近10条）
     close_w = weekly['Close'].squeeze()
-    weekly_closes = fmt_series(close_w, 2, 10)
-    weekly_macd   = fmt_series(w_ind['macd'], 2, 10)
-    weekly_rsi14  = fmt_series(w_ind['rsi14'], 2, 10)
+    close_m = monthly['Close'].squeeze()
+    close_d = daily['Close'].squeeze()
 
-    # 4h 替代用日线长期指标
-    ema20_4h  = round(float(d_ind['ema20'].iloc[-1]), 2)
-    ema50_4h  = round(float(d_ind['ema50'].iloc[-1]), 2)
-    atr3_4h   = round(float(d_ind['atr3'].iloc[-1]), 2)
-    atr14_4h  = round(float(d_ind['atr14'].iloc[-1]), 2)
+    # 当前价格（最新日线收盘）
+    current_price = round(float(close_d.iloc[-1]), 2)
 
-    vol_current = int(daily['Volume'].squeeze().iloc[-1])
-    vol_avg     = int(daily['Volume'].squeeze().tail(20).mean())
+    # 周线核心指标快照（主框架）
+    current_ema20_w  = round(float(w_ind['ema20'].dropna().iloc[-1]), 2)
+    current_ema50_w  = round(float(w_ind['ema50'].dropna().iloc[-1]), 2)
+    current_ema200_w = round(float(w_ind['ema200'].dropna().iloc[-1]), 2)
+    current_macd_w   = round(float(w_ind['macd'].dropna().iloc[-1]), 2)
+    current_rsi7_w   = round(float(w_ind['rsi7'].dropna().iloc[-1]), 2)
+    current_rsi14_w  = round(float(w_ind['rsi14'].dropna().iloc[-1]), 2)
 
-    # ── 新增指标快照 ──
-    stoch_k_val  = round(float(d_ind['stoch_k'].dropna().iloc[-1]), 1)
-    stoch_d_val  = round(float(d_ind['stoch_d'].dropna().iloc[-1]), 1)
-    adx_val      = round(float(d_ind['adx'].dropna().iloc[-1]), 1)
-    plus_di_val  = round(float(d_ind['plus_di'].dropna().iloc[-1]), 1)
-    minus_di_val = round(float(d_ind['minus_di'].dropna().iloc[-1]), 1)
-    bb_pct_b_val = round(float(d_ind['bb_pct_b'].dropna().iloc[-1]), 3)
-    bb_bw_val    = round(float(d_ind['bb_bw'].dropna().iloc[-1]), 2)
-    bb_upper_val = round(float(d_ind['bb_upper'].dropna().iloc[-1]), 1)
-    bb_lower_val = round(float(d_ind['bb_lower'].dropna().iloc[-1]), 1)
-    roc10_val    = round(float(d_ind['roc10'].dropna().iloc[-1]), 2)
-    roc20_val    = round(float(d_ind['roc20'].dropna().iloc[-1]), 2)
+    # 月线核心指标快照（长期趋势背景）
+    current_ema20_m  = round(float(m_ind['ema20'].dropna().iloc[-1]), 2)
+    current_ema50_m  = round(float(m_ind['ema50'].dropna().iloc[-1]), 2)
+    current_macd_m   = round(float(m_ind['macd'].dropna().iloc[-1]), 2)
+    current_rsi14_m  = round(float(m_ind['rsi14'].dropna().iloc[-1]), 2)
 
-    # OBV 趋势（最近5日方向）
-    obv_series = d_ind['obv'].dropna().tail(5).tolist()
-    obv_trend  = "上升" if obv_series[-1] > obv_series[0] else "下降"
+    # 周线 ATR（中长期止损定位）
+    atr14_weekly = round(float(w_ind['atr14'].dropna().iloc[-1]), 2)
+    atr3_weekly  = round(float(w_ind['atr3'].dropna().iloc[-1]), 2)
 
-    # 52周高低位
-    close_d_full  = daily['Close'].squeeze().dropna()
-    high_52w = round(float(close_d_full.tail(252).max()), 1)
-    low_52w  = round(float(close_d_full.tail(252).min()), 1)
+    # 价格涨跌幅
+    prev_week_close  = float(close_w.iloc[-2]) if len(close_w) >= 2 else current_price
+    prev_month_close = float(close_m.iloc[-2]) if len(close_m) >= 2 else current_price
+    price_3m_ago     = float(close_w.iloc[-13]) if len(close_w) >= 13 else float(close_w.iloc[0])
+    week_chg         = (current_price - prev_week_close)  / prev_week_close  * 100
+    month_chg        = (current_price - prev_month_close) / prev_month_close * 100
+    three_month_chg  = (current_price - price_3m_ago)     / price_3m_ago     * 100
+
+    # 成交量
+    vol_current_d = int(daily['Volume'].squeeze().iloc[-1])
+    vol_avg_d     = int(daily['Volume'].squeeze().tail(20).mean())
+
+    # 周线序列（最近26周 ≈ 半年）
+    n_w = 26
+    series_weekly_close = fmt_series(close_w, 2, n_w)
+    series_weekly_ema20 = fmt_series(w_ind['ema20'], 2, n_w)
+    series_weekly_ema50 = fmt_series(w_ind['ema50'], 2, n_w)
+    series_weekly_macd  = fmt_series(w_ind['macd'],  2, n_w)
+    series_weekly_rsi7  = fmt_series(w_ind['rsi7'],  2, n_w)
+    series_weekly_rsi14 = fmt_series(w_ind['rsi14'], 2, n_w)
+
+    # 月线序列（最近24个月 = 2年）
+    n_m = 24
+    series_monthly_close = fmt_series(close_m, 2, n_m)
+    series_monthly_ema20 = fmt_series(m_ind['ema20'], 2, n_m)
+    series_monthly_macd  = fmt_series(m_ind['macd'],  2, n_m)
+    series_monthly_rsi14 = fmt_series(m_ind['rsi14'], 2, n_m)
+
+    # 52周价格结构（基于周线）
+    high_52w = round(float(close_w.tail(52).max()), 1)
+    low_52w  = round(float(close_w.tail(52).min()), 1)
     pct_from_high = round((current_price - high_52w) / high_52w * 100, 1)
     pct_from_low  = round((current_price - low_52w)  / low_52w  * 100, 1)
 
-    # 日线序列扩展（Stochastic, ADX, ROC, BB%B）
-    daily_stoch_k = fmt_series(d_ind['stoch_k'], 1, n)
-    daily_stoch_d = fmt_series(d_ind['stoch_d'], 1, n)
-    daily_adx     = fmt_series(d_ind['adx'],     1, n)
-    daily_roc10   = fmt_series(d_ind['roc10'],   2, n)
-    daily_bb_pctb = fmt_series(d_ind['bb_pct_b'], 3, n)
+    # 周线高级指标快照
+    stoch_k_w  = round(float(w_ind['stoch_k'].dropna().iloc[-1]), 1)
+    stoch_d_w  = round(float(w_ind['stoch_d'].dropna().iloc[-1]), 1)
+    adx_w      = round(float(w_ind['adx'].dropna().iloc[-1]), 1)
+    plus_di_w  = round(float(w_ind['plus_di'].dropna().iloc[-1]), 1)
+    minus_di_w = round(float(w_ind['minus_di'].dropna().iloc[-1]), 1)
+    bb_pct_b_w = round(float(w_ind['bb_pct_b'].dropna().iloc[-1]), 3)
+    bb_bw_w    = round(float(w_ind['bb_bw'].dropna().iloc[-1]), 2)
+    bb_upper_w = round(float(w_ind['bb_upper'].dropna().iloc[-1]), 1)
+    bb_lower_w = round(float(w_ind['bb_lower'].dropna().iloc[-1]), 1)
+    roc10_w    = round(float(w_ind['roc10'].dropna().iloc[-1]), 2)
+    roc20_w    = round(float(w_ind['roc20'].dropna().iloc[-1]), 2)
+
+    obv_series_w = w_ind['obv'].dropna().tail(5).tolist()
+    obv_trend_w  = "上升" if obv_series_w[-1] > obv_series_w[0] else "下降"
+
+    # 近15周序列（高级指标）
+    n_seq = 15
+    series_stoch_k = fmt_series(w_ind['stoch_k'], 1, n_seq)
+    series_stoch_d = fmt_series(w_ind['stoch_d'], 1, n_seq)
+    series_adx     = fmt_series(w_ind['adx'],     1, n_seq)
+    series_roc10   = fmt_series(w_ind['roc10'],   2, n_seq)
+    series_bb_pctb = fmt_series(w_ind['bb_pct_b'], 3, n_seq)
 
     # ── 宏观跨资产摘要 ──
-    ms = summarize_macro(macro or {}, close_d_full) if macro is not None else summarize_macro({}, close_d_full)
+    ms = summarize_macro(macro or {}, close_d.dropna()) if macro is not None else summarize_macro({}, close_d.dropna())
 
     def _fmt_val(v, unit=""):
         return f"{v}{unit}" if v is not None else "N/A"
@@ -543,21 +562,19 @@ def build_prompt(daily: pd.DataFrame, weekly: pd.DataFrame,
 
     today_str = datetime.now().strftime("%Y-%m-%d")
 
-    # ── 预计算入场锚点（强制 entry_zone 贴近当前价，解决 INVALID_RR 问题）──
-    atr14_val = round(float(d_ind['atr14'].iloc[-1]), 2)
-    macd_val  = round(float(d_ind['macd'].iloc[-1]), 2)
-    rsi14_val = round(float(d_ind['rsi14'].iloc[-1]), 2)
-    rsi7_val  = round(float(d_ind['rsi7'].iloc[-1]), 2)
-    ema20_val = round(float(d_ind['ema20'].iloc[-1]), 2)
+    # ── 预计算入场锚点（基于周线 ATR-14，中长期定位）──
+    macd_w_val  = round(float(w_ind['macd'].dropna().iloc[-1]), 2)
+    rsi14_w_val = round(float(w_ind['rsi14'].dropna().iloc[-1]), 2)
+    rsi7_w_val  = round(float(w_ind['rsi7'].dropna().iloc[-1]), 2)
 
-    long_entry_lo  = round(current_price - 0.25 * atr14_val, 1)
-    long_entry_hi  = round(current_price + 0.25 * atr14_val, 1)
-    long_stop      = round(current_price - 1.2 * atr14_val, 1)
-    long_target    = round(current_price + 2.4 * atr14_val, 1)
-    short_entry_lo = round(current_price - 0.25 * atr14_val, 1)
-    short_entry_hi = round(current_price + 0.25 * atr14_val, 1)
-    short_stop     = round(current_price + 1.2 * atr14_val, 1)
-    short_target   = round(current_price - 2.4 * atr14_val, 1)
+    long_entry_lo  = round(current_price - 0.3 * atr14_weekly, 1)
+    long_entry_hi  = round(current_price + 0.3 * atr14_weekly, 1)
+    long_stop      = round(current_price - 1.5 * atr14_weekly, 1)
+    long_target    = round(current_price + 3.0 * atr14_weekly, 1)
+    short_entry_lo = round(current_price - 0.3 * atr14_weekly, 1)
+    short_entry_hi = round(current_price + 0.3 * atr14_weekly, 1)
+    short_stop     = round(current_price + 1.5 * atr14_weekly, 1)
+    short_target   = round(current_price - 3.0 * atr14_weekly, 1)
 
     # ── 性能反馈区块 ──
     perf_section = ""
@@ -595,8 +612,9 @@ def build_prompt(daily: pd.DataFrame, weekly: pd.DataFrame,
 """
 
     prompt = f"""
-# 黄金 (XAU/USD) 宏观大宗商品分析请求
+# 黄金 (XAU/USD) 中长期趋势分析请求
 **分析日期**: {today_str}
+**分析周期**: 中长期（持仓周期：2周 ~ 3个月）
 **数据来源**: COMEX 黄金期货 (GC=F)
 {perf_section}
 ---
@@ -604,50 +622,61 @@ def build_prompt(daily: pd.DataFrame, weekly: pd.DataFrame,
 ## 价格概要
 
 - **当前价格**: ${current_price}
-- **今日 O/H/L/C**: {today_open} / {today_high} / {today_low} / {today_close}
-- **今日涨跌幅**: {day_chg:+.2f}%
-- **过去5交易日涨跌**: ${price_5d_ago:.2f} → ${last_price:.2f}  ({week_chg:+.2f}%)
-- **今日成交量**: {today_vol:,}
+- **近1周涨跌幅**: {week_chg:+.2f}%
+- **近1个月涨跌幅**: {month_chg:+.2f}%
+- **近3个月涨跌幅**: {three_month_chg:+.2f}%
+- **今日成交量**: {vol_current_d:,}  vs.  **20日均量**: {vol_avg_d:,}
 
 ---
 
-## 当前技术指标快照
+## 当前技术指标快照（周线为主，月线为辅）
 
-- current_price = {current_price}
-- current_ema20 (日线) = {current_ema20}
-- current_macd (日线) = {current_macd}
-- current_rsi7 (日线) = {current_rsi7}
-- current_rsi14 (日线) = {current_rsi14}
+| 指标 | 当前值 | 框架 |
+|------|--------|------|
+| 当前价格 | {current_price} | 最新收盘 |
+| EMA-20 (周线) | {current_ema20_w} | 主框架 |
+| EMA-50 (周线) | {current_ema50_w} | 主框架 |
+| EMA-200 (周线) | {current_ema200_w} | 主框架 |
+| MACD (周线) | {current_macd_w} | 主框架 |
+| RSI-7 (周线) | {current_rsi7_w} | 主框架 |
+| RSI-14 (周线) | {current_rsi14_w} | 主框架 |
+| ATR-14 (周线) | {atr14_weekly} | 止损定位 |
+| EMA-20 (月线) | {current_ema20_m} | 长期背景 |
+| EMA-50 (月线) | {current_ema50_m} | 长期背景 |
+| MACD (月线) | {current_macd_m} | 长期背景 |
+| RSI-14 (月线) | {current_rsi14_m} | 长期背景 |
 
 ---
 
-## 日线序列数据（最近 {n} 个交易日，**从旧到新排列**）
+## 周线序列数据（最近 {n_w} 周 ≈ 半年，**从旧到新排列**）
 
 ⚠️ 最后一个数值 = 最新数据
 
-收盘价:   [{daily_closes}]
-EMA-20:   [{daily_ema20}]
-MACD:     [{daily_macd}]
-RSI-7:    [{daily_rsi7}]
-RSI-14:   [{daily_rsi14}]
+周收盘价: [{series_weekly_close}]
+EMA-20:   [{series_weekly_ema20}]
+EMA-50:   [{series_weekly_ema50}]
+MACD:     [{series_weekly_macd}]
+RSI-7:    [{series_weekly_rsi7}]
+RSI-14:   [{series_weekly_rsi14}]
 
 ---
 
-## 周线序列数据（最近 10 周，**从旧到新排列**）
+## 月线序列数据（最近 {n_m} 个月 ≈ 2年，**从旧到新排列**）
 
 ⚠️ 最后一个数值 = 最新数据
 
-周收盘价: [{weekly_closes}]
-MACD:     [{weekly_macd}]
-RSI-14:   [{weekly_rsi14}]
+月收盘价: [{series_monthly_close}]
+EMA-20:   [{series_monthly_ema20}]
+MACD:     [{series_monthly_macd}]
+RSI-14:   [{series_monthly_rsi14}]
 
 ---
 
 ## 长期趋势背景
 
-20日EMA: {ema20_4h}  vs.  50日EMA: {ema50_4h}
-ATR-3:   {atr3_4h}   vs.  ATR-14: {atr14_4h}
-今日成交量: {vol_current:,}  vs.  20日均量: {vol_avg:,}
+周线 EMA20: {current_ema20_w}  vs.  EMA50: {current_ema50_w}  vs.  EMA200: {current_ema200_w}
+月线 EMA20: {current_ema20_m}  vs.  EMA50: {current_ema50_m}
+周线 ATR-3: {atr3_weekly}   vs.  ATR-14: {atr14_weekly}
 
 ---
 
@@ -655,59 +684,60 @@ ATR-3:   {atr3_4h}   vs.  ATR-14: {atr14_4h}
 
 - **52周高点**: {high_52w}  |  **距高点**: {pct_from_high:+.1f}%
 - **52周低点**: {low_52w}   |  **距低点**: {pct_from_low:+.1f}%
-- **当前价在布林带中的位置 (%B)**: {bb_pct_b_val:.3f}  （0=下轨，0.5=中轨，1=上轨，>1=突破上轨，<0=跌破下轨）
-- **布林带上轨**: {bb_upper_val}  |  **下轨**: {bb_lower_val}  |  **带宽**: {bb_bw_val:.2f}%
+- **当前价在周线布林带中的位置 (%B)**: {bb_pct_b_w:.3f}  （0=下轨，0.5=中轨，1=上轨，>1=突破上轨，<0=跌破下轨）
+- **布林带上轨**: {bb_upper_w}  |  **下轨**: {bb_lower_w}  |  **带宽**: {bb_bw_w:.2f}%
 
 ---
 
-## 高级技术指标快照（日线）
+## 高级技术指标快照（周线）
 
 | 指标 | 当前值 | 信号解读 |
 |------|--------|----------|
-| Stochastic %K | {stoch_k_val} | {'超买区 >80' if stoch_k_val > 80 else ('超卖区 <20' if stoch_k_val < 20 else '中性区间')} |
-| Stochastic %D | {stoch_d_val} | {'K>D 金叉' if stoch_k_val > stoch_d_val else 'K<D 死叉'} |
-| ADX | {adx_val} | {'强趋势 >25' if adx_val > 25 else ('弱趋势 <20，市场振荡' if adx_val < 20 else '趋势形成中')} |
-| +DI / -DI | {plus_di_val} / {minus_di_val} | {'+DI>-DI 多头主导' if plus_di_val > minus_di_val else '-DI>+DI 空头主导'} |
-| ROC(10日) | {roc10_val:+.2f}% | {'正动量' if roc10_val > 0 else '负动量'} |
-| ROC(20日) | {roc20_val:+.2f}% | {'正动量' if roc20_val > 0 else '负动量'} |
-| OBV趋势(5日) | {obv_trend} | {'量价配合上涨' if obv_trend == '上升' else '量价背离下跌'} |
+| Stochastic %K (周) | {stoch_k_w} | {'超买区 >80' if stoch_k_w > 80 else ('超卖区 <20' if stoch_k_w < 20 else '中性区间')} |
+| Stochastic %D (周) | {stoch_d_w} | {'K>D 金叉' if stoch_k_w > stoch_d_w else 'K<D 死叉'} |
+| ADX (周) | {adx_w} | {'强趋势 >25' if adx_w > 25 else ('弱趋势 <20，市场振荡' if adx_w < 20 else '趋势形成中')} |
+| +DI / -DI (周) | {plus_di_w} / {minus_di_w} | {'+DI>-DI 多头主导' if plus_di_w > minus_di_w else '-DI>+DI 空头主导'} |
+| ROC(10周) | {roc10_w:+.2f}% | {'正动量' if roc10_w > 0 else '负动量'} |
+| ROC(20周) | {roc20_w:+.2f}% | {'正动量' if roc20_w > 0 else '负动量'} |
+| OBV趋势(近5周) | {obv_trend_w} | {'量价配合上涨' if obv_trend_w == '上升' else '量价配合下跌'} |
 
-**近15日序列（从旧到新）**：
-Stochastic %K: [{daily_stoch_k}]
-Stochastic %D: [{daily_stoch_d}]
-ADX:           [{daily_adx}]
-ROC(10):       [{daily_roc10}]
-BB %B:         [{daily_bb_pctb}]
+**近15周序列（从旧到新）**：
+Stochastic %K: [{series_stoch_k}]
+Stochastic %D: [{series_stoch_d}]
+ADX:           [{series_adx}]
+ROC(10):       [{series_roc10}]
+BB %B:         [{series_bb_pctb}]
 {macro_section}
 ---
 
-## 预计算入场锚点（基于当前价格与 ATR-14={atr14_val}）
+## 预计算入场锚点（基于周线 ATR-14={atr14_weekly}，中长期定位）
 
-> 这些数值由系统预先计算，**entry_zone 必须在此范围内**，否则将被判定为无效信号 (INVALID_RR)。
+> 周线 ATR-14 代表约1周的平均真实波幅，中长期止损须置于 1.5×周线ATR 之外以避免被周线噪音止损。
+> entry_zone 必须在此范围内，否则将被判定为无效信号 (INVALID_RR)。
 
-| 方向 | entry_zone 参考 | stop_loss 参考 | profit_target 参考 (2.0×R) |
-|------|-----------------|----------------|----------------------------|
+| 方向 | entry_zone 参考 | stop_loss 参考 (1.5×ATR) | profit_target 参考 (2.0×R) |
+|------|-----------------|--------------------------|----------------------------|
 | 做多 | {long_entry_lo} – {long_entry_hi} | {long_stop} | {long_target} |
 | 做空 | {short_entry_lo} – {short_entry_hi} | {short_stop} | {short_target} |
 
-你可以在上述参考值基础上小幅调整（±0.3×ATR），但不得大幅偏离。
+你可以在上述参考值基础上小幅调整（±0.5×ATR），但不得大幅偏离。
 
 ---
 
 ## 分析任务
 
-请基于以上数据，按照大宗商品分析框架，完成以下任务：
+请基于以上数据，按照中长期大宗商品分析框架，完成以下任务：
 
-1. **判断当前市场制度**（Trending / Mean-Reverting / Choppy）
+1. **判断当前市场制度**（Trending / Mean-Reverting / Choppy），以**周线**为准
 2. **判断整体市场情绪**（Risk-On / Risk-Off / Neutral）
-3. **分析 DXY 对黄金的潜在压力方向**
-4. **针对黄金给出交易建议**，严格按以下 JSON 格式输出：
+3. **分析 DXY 对黄金中长期走势的影响**
+4. **针对黄金给出中长期交易建议**（持仓周期 2周~3个月），严格按以下 JSON 格式输出：
 
 ```json
 {{
-  "period": "Daily",
+  "period": "Weekly",
   "overall_market_sentiment": "Risk-On | Risk-Off | Neutral",
-  "dxy_assessment": "<DXY 趋势及对黄金的影响>",
+  "dxy_assessment": "<DXY 趋势及对黄金中长期走势的影响>",
   "asset_analysis": [
     {{
       "asset": "GOLD",
@@ -718,9 +748,10 @@ BB %B:         [{daily_bb_pctb}]
       "profit_target": <数字 或 null>,
       "stop_loss": <数字 或 null>,
       "risk_reward_ratio": <数字 或 null>,
-      "invalidation_condition": "<使该观点失效的具体信号>",
-      "macro_catalyst": "<驱动此次行情的宏观逻辑>",
-      "technical_setup": "<指标信号综合描述>",
+      "estimated_holding_weeks": <预计持仓周数，整数 2~12，或 null if no_trade>,
+      "invalidation_condition": "<使该观点失效的具体信号（周线收盘为准）>",
+      "macro_catalyst": "<驱动中长期行情的宏观逻辑>",
+      "technical_setup": "<关键周线/月线指标信号综合描述>",
       "justification": "<不超过300字的综合判断>"
     }}
   ]
@@ -728,27 +759,29 @@ BB %B:         [{daily_bb_pctb}]
 ```
 
 **硬性约束（违反任意一条必须改为 no_trade）**：
-- entry_zone 必须包含当前价格 ±1×ATR-14 范围，不得设置脱离市场的理想价格
+- entry_zone 必须包含当前价格 ±1×周线ATR-14 范围，不得设置脱离市场的理想价格
 - profit_target 做多时必须高于 entry_zone 上限，做空时必须低于 entry_zone 下限
 - risk_reward_ratio 必须 ≥ 2.0
-- stop_loss 距离 entry 不得小于 0.8×ATR-14（避免被噪音止损）
-- 当 action = no_trade 时，profit_target / stop_loss / risk_reward_ratio 填 null
+- stop_loss 距离 entry 不得小于 1.0×周线ATR-14（中长期需容纳周线波动噪音）
+- 当 action = no_trade 时，profit_target / stop_loss / risk_reward_ratio / estimated_holding_weeks 填 null
 
 **信号质量过滤规则（全部适用）**：
-- 日线 MACD ({macd_val}) < 0 时，**禁止**在 Trending 制度下做多；可评估做空
-- 日线 RSI-7 ({rsi7_val}) > 75 时，做多 bias_score 自动上限 0.55；RSI-7 < 25 时，做空 bias_score 自动上限 0.55
-- 价格偏离 EMA-20 ({ema20_val}) 超过 3% 时，bias_score 上限 0.55（无论方向）
+- 周线 MACD ({macd_w_val}) < 0 时，**禁止**在 Trending 制度下做多；可评估做空
+- 周线 RSI-14 ({rsi14_w_val}) > 75 时，做多 bias_score 自动上限 0.55；RSI-14 < 30 时，做空 bias_score 自动上限 0.55
+- 价格偏离周线 EMA-20 ({current_ema20_w}) 超过 10% 时，bias_score 上限 0.55（无论方向）
 - Choppy 或 Mean-Reverting 制度下，bias_score 上限 0.55
 - 当 bias_score < 0.50 时，一律输出 no_trade
-- 多空均衡：价格低于 EMA-20 且 MACD 为负时，**必须认真评估做空机会**，不得默认 no_trade
+- 多空均衡：价格低于周线 EMA-20 且 MACD 为负时，**必须认真评估做空机会**，不得默认 no_trade
 
-**宏观因子使用规则**：
+**宏观与多时间框架因子使用规则**：
 - DXY 趋势向上（价格>EMA20）时，做多黄金需额外降低 bias_score 0.05–0.10
 - 10Y 收益率持续上升趋势时，做多黄金需额外降低 bias_score 0.05
 - VIX > 25 时，Risk-Off 环境，黄金避险需求升级，可适当上调 bias_score 0.05
-- ADX ({adx_val}) < 20：市场处于振荡，Trending 信号可靠性下降，降级为 Choppy
+- ADX ({adx_w}) < 20：市场处于振荡，Trending 信号可靠性下降，降级为 Choppy
 - ADX > 30：趋势强劲，可适当上调 bias_score 0.05
-- Stochastic %K ({stoch_k_val}) > 80 且 %K < %D：超买死叉，做多信号降级
+- 月线 MACD 与周线 MACD 同向（均为正或均为负）：多时间框架共振，bias_score 上调 0.05
+- 月线 MACD 与周线 MACD 背离（方向相反）：信号可靠性下降，bias_score 降低 0.05
+- Stochastic %K ({stoch_k_w}) > 80 且 %K < %D：超买死叉，做多信号降级
 - Stochastic %K < 20 且 %K > %D：超卖金叉，做空信号降级
 - OBV 趋势与价格趋势背离时，降低 bias_score 0.10（量价不配合）
 - 金银比快速上升（避险驱动）且 VIX 上升：黄金 safe-haven 信号加强
@@ -1175,7 +1208,7 @@ def main():
     )
     args = parser.parse_args()
 
-    daily, weekly = fetch_gold_data()
+    daily, weekly, monthly = fetch_gold_data()
 
     print("\n正在获取宏观跨资产数据...")
     macro = fetch_macro_data()
@@ -1192,7 +1225,7 @@ def main():
     else:
         print("\n未找到回测指标文件，将生成不含性能反馈的提示词")
 
-    prompt = build_prompt(daily, weekly, perf_metrics=perf_metrics, macro=macro, paxg=paxg)
+    prompt = build_prompt(daily, weekly, monthly, perf_metrics=perf_metrics, macro=macro, paxg=paxg)
 
     # ── 方案一：保存提示词文件（默认）──
     output_path = "gold_prompt_output.txt"

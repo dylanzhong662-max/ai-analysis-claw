@@ -4,15 +4,26 @@
 
 ## 一、项目概览
 
-本系统以 Claude / DeepSeek 大语言模型为核心决策引擎，每天自动采集以下资产的行情与宏观数据，生成结构化交易建议，并推送到飞书群：
+本系统以 Claude / DeepSeek 大语言模型为核心决策引擎，自动采集多资产行情与宏观数据，生成结构化交易建议，并支持持仓跟踪和自动下单。
 
-| 资产 | 品种 | 持仓周期 | 分析脚本 |
-|------|------|----------|----------|
-| 黄金 | GC=F 期货 + PAXG 链上代币 | 短线（日线） | `gold_analysis.py` |
-| 比特币 | BTC-USD | 中长线（6个月~3年） | `btc_analysis.py` |
-| 谷歌 | GOOGL | 中线（1~6个月） | `tech_stock_analysis.py` |
-| 英伟达 | NVDA | 中线（1~6个月） | `tech_stock_analysis.py` |
-| 亚马逊 | AMZN | 中线（1~6个月） | `tech_stock_analysis.py` |
+### 支持的资产
+
+| 分组 | 资产 | Ticker | 持仓周期 | 分析脚本 |
+|------|------|--------|----------|----------|
+| **贵金属** | 黄金 | GC=F | 短线（日线） | `gold_analysis.py` |
+| | 白银 ETF | SLV | 中线 | `tech_stock_analysis.py` |
+| **工业金属** | 铜矿 ETF | COPX | 中线 | `tech_stock_analysis.py` |
+| | 稀土/钨 ETF | REMX | 中线 | `tech_stock_analysis.py` |
+| **能源** | 原油 ETF | USO | 中线 | `tech_stock_analysis.py` |
+| **加密货币** | 比特币 | BTC-USD | 长线（6个月~3年） | `btc_analysis.py` |
+| **科技股** | Alphabet | GOOGL | 中线（1~6个月） | `tech_stock_analysis.py` |
+| | Microsoft | MSFT | 中线 | `tech_stock_analysis.py` |
+| | NVIDIA | NVDA | 中线 | `tech_stock_analysis.py` |
+| | Apple | AAPL | 中线 | `tech_stock_analysis.py` |
+| | Meta | META | 中线 | `tech_stock_analysis.py` |
+| | Amazon | AMZN | 中线 | `tech_stock_analysis.py` |
+
+所有资产配置集中在 `assets_config.py`，新增资产只需在此注册。
 
 ---
 
@@ -20,77 +31,186 @@
 
 ```
 大模型金融分析/
-├── gold_analysis.py          # 黄金实时分析（含 PAXG 链上价格）
+├── gold_analysis.py          # 黄金实时分析（含 PAXG 链上价格 + 自动下单）
 ├── btc_analysis.py           # BTC 战略分析
-├── tech_stock_analysis.py    # 科技股分析（GOOGL / NVDA / AMZN 等）
+├── tech_stock_analysis.py    # 科技股 + 大宗商品 ETF 分析
+├── market_scan.py            # 多资产横向扫描 + 跨资产机会排名（新）
+├── portfolio_tracker.py      # 持仓跟踪 + 操作建议生成器（新）
+├── assets_config.py          # 资产注册表 + 扫描分组配置（新）
+├── portfolio.json            # 当前持仓文件（用户维护）（新）
 ├── backtest_engine.py        # 历史回测引擎（黄金）
+├── google_backtest.py        # 历史回测引擎（科技股）
 ├── feishu_notifier.py        # 飞书推送器
 ├── run_daily.sh              # 每日定时任务脚本
 ├── run_weekly.sh             # 每周汇总脚本
 ├── setup_cron.sh             # 服务器 crontab 配置
-├── setup_proxy.sh            # 服务器代理安装（Shadowsocks + Privoxy）
 ├── deploy.sh                 # 一键部署到阿里云 ECS
 ├── requirements.txt          # Python 依赖列表
-├── .env                      # API Key 和配置（不提交 git）
-├── .env.example              # 环境变量模板
-├── com.finance.daily.plist   # macOS launchd 每日定时配置
-├── com.finance.weekly.plist  # macOS launchd 每周定时配置
+│
 ├── gold_prompt_output.txt    # 最新黄金提示词（自动覆盖）
-├── gold_api_output.txt       # 最新黄金分析结果（自动覆盖）
-├── btc_prompt_output.txt     # 最新 BTC 提示词
+├── gold_api_output.txt       # 最新黄金分析结果
 ├── btc_api_output.txt        # 最新 BTC 分析结果
-├── googl_api_output.txt      # 最新 GOOGL 分析结果
-├── nvda_api_output.txt       # 最新 NVDA 分析结果
-├── amzn_api_output.txt       # 最新 AMZN 分析结果
-├── logs/                     # 运行日志（自动生成）
-├── backtest_prompts/         # 回测用盲化提示词
+├── {ticker}_api_output.txt   # 各股票/ETF 最新分析结果
+├── market_scan_output.json   # 最新多资产扫描结果（结构化）
+├── market_scan_report.txt    # 最新多资产扫描报告（原始文本）
+├── portfolio_status.json     # 最新持仓状态评估结果（新）
+├── orders.json               # 待执行订单列表（--export-orders 时生成）（新）
+│
+├── logs/                     # 运行日志
+├── backtest_prompts/         # 黄金回测用盲化提示词
 ├── backtest_responses/       # 手动回测 LLM 响应
-└── backtest_results/         # 回测输出（signals.csv / performance.csv）
+├── backtest_results/         # 黄金回测输出（signals.csv / performance.csv）
+└── googl_backtest_results/   # GOOGL 回测输出
 ```
 
 ---
 
 ## 三、本地 Mac 运行
 
-### 手动运行单次分析
+### 3.1 单资产分析
 
 ```bash
 cd ~/Desktop/大模型金融分析
 source .env
 
-# 黄金分析（生成提示词文件，不调用 API）
-python3 gold_analysis.py
-
-# 黄金分析（直接调用 Claude API）
-python3 gold_analysis.py --api
-
-# BTC 分析
-python3 btc_analysis.py --api
-
-# 科技股分析
-python3 tech_stock_analysis.py --ticker GOOGL --api
-python3 tech_stock_analysis.py --ticker NVDA --api
-python3 tech_stock_analysis.py --ticker AMZN --api
-
-# 使用 DeepSeek 模型替代 Claude
+# 黄金
+python3 gold_analysis.py                              # 只生成提示词文件
+python3 gold_analysis.py --api                        # 调用 Claude 直接分析
 python3 gold_analysis.py --api --model deepseek-reasoner
+python3 gold_analysis.py --api --trade                # 分析 + 自动下单 PAXG/USDT
+python3 gold_analysis.py --api --trade --dry-run      # 模拟下单（不实际成交）
+
+# BTC
+python3 btc_analysis.py --api
+python3 btc_analysis.py --api --model deepseek-reasoner
+
+# 科技股
+python3 tech_stock_analysis.py --ticker GOOGL --api
+python3 tech_stock_analysis.py --ticker NVDA  --api
+python3 tech_stock_analysis.py --ticker MSFT  --api
+python3 tech_stock_analysis.py --ticker AAPL  --api
+python3 tech_stock_analysis.py --ticker META  --api
+python3 tech_stock_analysis.py --ticker AMZN  --api
+
+# 大宗商品 ETF
+python3 tech_stock_analysis.py --ticker SLV  --api   # 白银
+python3 tech_stock_analysis.py --ticker COPX --api   # 铜矿
+python3 tech_stock_analysis.py --ticker REMX --api   # 稀土/钨
+python3 tech_stock_analysis.py --ticker USO  --api   # 原油
 ```
 
-### 手动推送飞书
+### 3.2 多资产横向扫描（新功能）
+
+一次性分析多个资产，LLM 额外输出：
+- 当前宏观主题识别（AI 算力周期、贵金属避险等）
+- 板块强弱排名（Strong / Neutral / Weak）
+- Top 5 交易机会排名
+- 持仓相关性风险提示
+
+```bash
+# 快速扫描（GOLD + BTC + NVDA + MSFT，日常推荐）
+python3 market_scan.py --api
+
+# 按预定义分组扫描
+python3 market_scan.py --group tech     --api   # 6 只科技股
+python3 market_scan.py --group metals   --api   # 黄金/白银/铜/稀土
+python3 market_scan.py --group commodities --api
+python3 market_scan.py --group all      --api   # 全部资产（耗时约 15 分钟）
+
+# 自定义资产列表
+python3 market_scan.py --assets GOLD NVDA AAPL SLV --api
+
+# 跳过重新分析，直接对已有输出做汇总排名（节省时间）
+python3 market_scan.py --group tech --skip-individual --api
+
+# 使用 DeepSeek 降低 API 成本
+python3 market_scan.py --group all --api --model deepseek-chat
+```
+
+**输出文件**：
+- `market_scan_report.txt` — 完整扫描报告
+- `market_scan_output.json` — 结构化 JSON，包含 `top_opportunities`、`sector_ranking`、`correlation_risks`
+
+### 3.3 持仓跟踪（新功能）
+
+#### 第一步：维护 portfolio.json
+
+```json
+{
+  "positions": [
+    {
+      "asset":          "GOLD",
+      "type":           "long",
+      "entry_price":    3200.0,
+      "entry_date":     "2026-03-15",
+      "quantity":       0.01,
+      "stop_loss":      3100.0,
+      "profit_target":  3500.0,
+      "exchange":       "Binance",
+      "symbol":         "PAXGUSDT",
+      "notes":          "可选备注"
+    }
+  ]
+}
+```
+
+`asset` 字段必须与 `assets_config.py` 中的 key 一致（大写），例如 `GOLD`、`NVDA`、`SLV`。
+
+#### 第二步：运行跟踪器
+
+```bash
+# 查看持仓状态（使用已有信号文件，不重新分析）
+python3 portfolio_tracker.py
+
+# 先刷新所有持仓资产的 LLM 信号，再评估
+python3 portfolio_tracker.py --update-signals
+
+# 导出 orders.json（供后续交易接口读取）
+python3 portfolio_tracker.py --export-orders
+
+# 完整流程：刷新信号 + 评估 + 导出订单
+python3 portfolio_tracker.py --update-signals --export-orders
+```
+
+#### 操作建议说明
+
+| 状态 | 触发条件 | 生成订单 |
+|------|---------|---------|
+| `HOLD` | 信号方向一致，价格正常 | 无 |
+| `STOP_TRIGGERED` | 当前价已触及/跌破止损 | 市价平仓 |
+| `TARGET_REACHED` | 当前价已触及/超过目标价 | 限价锁利 |
+| `SIGNAL_REVERSED` | LLM 最新信号方向与持仓相反 | 市价平仓 |
+| `REDUCE` | LLM 信号变为 no_trade（bias < 0.5） | 市价减半仓 |
+
+#### orders.json 格式（交易接口对接）
+
+```json
+{
+  "generated_at": "2026-03-30T10:00:00",
+  "orders": [
+    {
+      "asset":      "GOLD",
+      "action":     "STOP_TRIGGERED",
+      "side":       "sell",
+      "quantity":   0.01,
+      "order_type": "market",
+      "price":      3080.0,
+      "note":       "STOP_TRIGGERED"
+    }
+  ]
+}
+```
+
+### 3.4 飞书推送
 
 ```bash
 source .env
-# 推送当日报告（读取现有输出文件）
-python3 feishu_notifier.py --mode daily
-
-# 推送周报
-python3 feishu_notifier.py --mode weekly
-
-# 测试飞书连通性
-python3 feishu_notifier.py --mode test
+python3 feishu_notifier.py --mode daily    # 推送当日报告
+python3 feishu_notifier.py --mode weekly   # 推送周报
+python3 feishu_notifier.py --mode test     # 测试连通性
 ```
 
-### Mac 定时任务管理
+### 3.5 Mac 定时任务管理
 
 ```bash
 # 注册定时任务（首次）
@@ -130,11 +250,7 @@ ssh root@101.201.171.174
 ### 常用服务器操作
 
 ```bash
-# 进入项目目录
-cd /opt/finance-analysis
-
-# 加载环境变量
-source .env
+cd /opt/finance-analysis && source .env
 
 # 手动触发每日分析
 bash run_daily.sh
@@ -147,76 +263,45 @@ tail -f logs/daily_$(date +%Y%m%d).log
 
 # 查看 crontab 日志
 tail -f logs/cron.log
-
-# 查看所有日志文件
-ls -lh logs/
 ```
 
 ### crontab 定时任务
 
-```bash
-# 查看当前定时任务
-crontab -l
-
-# 修改定时任务
-crontab -e
 ```
-
-当前配置：
-```
-# 每天 08:00 CST（北京时间）→ 日报
+# 每天 08:00 CST
 0 0 * * * bash /opt/finance-analysis/run_daily.sh >> /opt/finance-analysis/logs/cron.log 2>&1
 
-# 每周一 08:30 CST → 周报
+# 每周一 08:30 CST
 30 0 * * 1 bash /opt/finance-analysis/run_weekly.sh >> /opt/finance-analysis/logs/cron.log 2>&1
 ```
 
 ### 代理服务管理（Shadowsocks + Privoxy）
-
-ss-local 已配置为 **systemd 服务**，开机自动启动，无需手动拉起。
 
 ```bash
 # 查看代理状态
 systemctl status ss-local
 systemctl status privoxy
 
-# 重启代理（正常维护用）
-systemctl restart ss-local
-systemctl restart privoxy
+# 重启代理
+systemctl restart ss-local && systemctl restart privoxy
 
-# 验证代理链路通畅
-curl --socks5 127.0.0.1:1080 http://httpbin.org/ip -s   # 测试 ss-local
-curl --proxy http://127.0.0.1:8118 http://httpbin.org/ip -s  # 测试 Privoxy
-
-# 查看代理日志
-journalctl -u ss-local -n 30
-journalctl -u privoxy -n 30
+# 验证代理链路
+curl --socks5 127.0.0.1:1080 http://httpbin.org/ip -s
+curl --proxy http://127.0.0.1:8118 http://httpbin.org/ip -s
 ```
 
 ### 更新 Shadowsocks 节点配置
 
-SS 服务商会不定期更换端口和密码，配置失效后 yfinance 会报 `YFRateLimitError`。
-
-**获取最新配置**：从 ssconf 链接拉取（链接见团队记录）：
 ```bash
+# 获取最新配置
 curl -s "https://ss.wawaapp.net/t/520fa9d967e39ce4b19a54c88312e52d2991ecf63894998e00f031308"
-# 返回示例：{"server":"...","server_port":7060,"password":"...","method":"aes-128-gcm"}
-```
 
-**更新配置并重启**（在 ECS 上执行）：
-```bash
+# 更新并重启
 nano /etc/shadowsocks-libev/local.json
-# 更新 server_port 和 password
-
 systemctl restart ss-local
-
-# 验证
-curl --socks5 127.0.0.1:1080 http://httpbin.org/ip -s
 ```
 
 ### 重新部署（代码更新后）
-
-在 Mac 上执行（不带 --init，跳过依赖安装）：
 
 ```bash
 cd ~/Desktop/大模型金融分析
@@ -226,9 +311,6 @@ bash deploy.sh 101.201.171.174 root
 ---
 
 ## 五、配置文件 .env 说明
-
-服务器路径：`/opt/finance-analysis/.env`
-本地路径：`~/Desktop/大模型金融分析/.env`
 
 ```bash
 # Claude API
@@ -244,143 +326,158 @@ FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/...
 # HTTP 代理（服务器需要，本地 Mac 不需要）
 HTTPS_PROXY=http://127.0.0.1:8118
 HTTP_PROXY=http://127.0.0.1:8118
-
-# 飞书不走代理
 NO_PROXY=open.feishu.cn,feishu.cn
 ```
-
-修改 .env 后不需要重启任何服务，每次 `source .env` 或脚本运行时自动加载。
 
 ---
 
 ## 六、飞书消息说明
 
-### 每日报告（08:00）包含：
-- 黄金：操作方向、入场区间、止盈止损、R:R、PAXG 链上价差
-- BTC：减半周期、情绪指数、操作方向、仓位建议
-- GOOGL / NVDA / AMZN：市场制度、财报风险、操作方向
+### 每日报告（08:00）
+- 黄金：方向、入场区间、止盈止损、R:R、PAXG 链上价差
+- BTC：减半周期、情绪指数、方向、仓位建议
+- 科技股（GOOGL / NVDA / AMZN）：制度、财报风险、方向
 
-### 每周汇总（周一 08:30）包含：
-- 以上所有资产的完整深度分析（含宏观逻辑、技术面、估值背景）
+### 每周汇总（周一 08:30）
+所有资产的完整深度分析（含宏观逻辑、技术面、估值背景）
 
-### 信号说明：
-| 信号 | 含义 |
+### 信号说明
+
+| 字段 | 含义 |
 |------|------|
-| 做多 [多] | 建议做多，有明确入场、止盈、止损价位 |
-| 做空 [空] | 建议做空 |
-| 观望 [空仓] | 信号不足，建议不操作 |
-| bias_score | 0~1，≥0.50 才会给出交易建议，越高越确定 |
+| `action: long` | 建议做多 |
+| `action: short` | 建议做空 |
+| `action: no_trade` | 信号不足，观望 |
+| `bias_score` | 0~1，≥ 0.50 才给出交易建议，越高越确定 |
 
 ---
 
 ## 七、回测系统
 
+### 黄金回测
+
 ```bash
 # 生成历史提示词（不需要 API Key）
 python3 backtest_engine.py --generate --start 2024-01-01 --end 2024-12-31 --step 5
 
-# 评估已有的手动回测响应
+# 评估已有手动响应
 python3 backtest_engine.py --evaluate
 
-# 全自动回测（需要 DeepSeek API Key，便宜）
+# 全自动回测（需要 DeepSeek API Key）
 python3 backtest_engine.py --start 2025-01-01 --end 2025-12-31
 
 # 断点续跑
 python3 backtest_engine.py --start 2025-01-01 --end 2025-12-31 --resume
 ```
 
-回测结果保存在 `backtest_results/`，会被下次实时分析读取用于动态调整决策阈值。
+### 科技股回测
+
+```bash
+python3 google_backtest.py --generate --start 2024-01-01 --end 2025-12-31
+python3 google_backtest.py --evaluate
+python3 google_backtest.py --start 2024-01-01 --end 2025-12-31
+```
+
+### 回测结果自动反馈
+
+回测完成后 `backtest_results/performance.csv` 自动更新。下次运行实时分析时，脚本自动读取最新胜率并注入提示词，动态调整 LLM 的入场阈值：
+
+- 胜率 < 40% → `bias_score` 门槛提升至 ≥ 0.65
+- 连续亏损 ≥ 2 次 → 需 `bias_score` ≥ 0.75 才入场
+
+### 新增资产的回测方案
+
+对于新加入的资产，回测需按资产类型分别运行：
+
+| 资产类型 | 参考引擎 | 主要差异 |
+|---------|---------|---------|
+| 大宗商品 ETF（SLV/COPX/REMX/USO） | `backtest_engine.py` | 修改 ticker 和 `EVAL_DAYS` |
+| 科技股（MSFT/AAPL/META/AMZN） | `google_backtest.py` | 修改 ticker 和同业对标列表 |
 
 ---
 
-## 八、常见问题
+## 八、新增资产配置方法
+
+所有资产统一在 `assets_config.py` 中注册：
+
+```python
+"TSLA": {
+    "ticker":       "TSLA",
+    "type":         "equity",
+    "script":       "tech_stock_analysis.py",
+    "script_args":  ["--ticker", "TSLA"],
+    "output_file":  "tsla_api_output.txt",
+    "prompt_file":  "tsla_prompt_output.txt",
+    "backtest_dir": None,
+    "sector":       "Technology/EV",
+    "ccy":          "USD",
+    "description":  "Tesla",
+},
+```
+
+注册后：
+- `market_scan.py` 自动识别并扫描
+- `portfolio_tracker.py` 可跟踪该资产的持仓
+- 在 `tech_stock_analysis.py` 的 `_INDUSTRY_CONTEXT` 字典中添加该 ticker 的专属分析维度（可选，不加则使用通用提示词）
+
+---
+
+## 九、常见问题
 
 ### Q：yfinance 报 YFRateLimitError
-服务器 IP 被 Yahoo Finance 限速，根本原因通常是**代理链路断了**，直连 IP 被封。排查步骤：
 
-**第一步：检查 ss-local 是否正常转发**
+服务器代理链路断了，排查步骤：
+
 ```bash
+# 检查代理
 curl --socks5 127.0.0.1:1080 http://httpbin.org/ip -s
-# 正常应返回代理出口 IP（非 ECS 本机 IP）；返回空或超时则说明 ss-local 异常
-```
 
-**第二步：如果 ss-local 异常，检查 SS 节点配置是否过期**
-
-SS 服务商会不定期更换端口/密码，通过 ssconf 链接拉取最新配置：
-```bash
+# 更新 SS 节点配置
 curl -s "https://ss.wawaapp.net/t/520fa9d967e39ce4b19a54c88312e52d2991ecf63894998e00f031308"
-```
-对比 `/etc/shadowsocks-libev/local.json` 里的 `server_port` 和 `password`，若不一致则更新后重启：
-```bash
 nano /etc/shadowsocks-libev/local.json
 systemctl restart ss-local
 ```
 
-**第三步：验证整条链路**
+### Q：market_scan 某个资产输出为"信号解析失败"
+
+该资产的 `*_api_output.txt` 文件不存在或格式异常。先单独运行该资产的分析脚本：
+
 ```bash
-curl --proxy http://127.0.0.1:8118 http://httpbin.org/ip -s   # Privoxy 通了则代理链路正常
+python3 tech_stock_analysis.py --ticker NVDA --api
 ```
 
+然后再运行 `market_scan.py --skip-individual`。
+
+### Q：portfolio_tracker 提示"无最新信号文件"
+
+运行 `portfolio_tracker.py --update-signals` 刷新信号，或手动运行对应资产的分析脚本。
+
+### Q：orders.json 生成了，如何对接交易接口
+
+`orders.json` 中每个订单的 `side`、`quantity`、`order_type`、`price` 字段已对齐 Binance API 格式。在交易接口中读取此文件并遍历 `orders` 数组，调用 `client.create_order()` 即可。详见 `gold_analysis.py` 中的 `execute_trade()` 函数作为参考实现。
+
 ### Q：飞书发送失败
-检查 Webhook URL 是否正确，以及 NO_PROXY 是否设置：
+
 ```bash
 source .env && python3 feishu_notifier.py --mode test
 ```
 
 ### Q：分析结果为空或 JSON 解析失败
-查看对应的 `*_api_output.txt` 文件内容，看是否有报错信息而非 JSON：
+
 ```bash
-cat gold_api_output.txt
-```
-
-### Q：服务器重启后代理失效
-ss-local 已配置为 systemd 服务并设置开机自启，重启后会自动恢复，无需手动操作。
-
-若发现 ss-local 未运行（`systemctl status ss-local` 显示 inactive），执行：
-```bash
-systemctl start ss-local
-```
-
-如需重新配置 systemd 服务（机器迁移或重装系统时）：
-```bash
-cat > /etc/systemd/system/ss-local.service << EOF
-[Unit]
-Description=Shadowsocks Local Client
-After=network.target
-
-[Service]
-ExecStart=/usr/bin/ss-local -c /etc/shadowsocks-libev/local.json
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-systemctl enable ss-local
-systemctl start ss-local
-```
-
-### Q：想更换 Webhook（飞书群换了）
-```bash
-nano /opt/finance-analysis/.env
-# 修改 FEISHU_WEBHOOK_URL 那行
-# 保存后测试：
-source .env && python3 feishu_notifier.py --mode test
+cat gold_api_output.txt     # 查看原始输出是否有报错信息
 ```
 
 ---
 
-## 九、费用说明
+## 十、费用说明
 
 | 项目 | 费用 |
 |------|------|
 | 阿里云 ECS（2核2G） | ~¥24/月 |
-| Claude API | 约 $0.01~0.05/次分析 |
-| DeepSeek API | 约 ¥0.001/次（极便宜） |
+| Claude API（单次分析） | 约 $0.01~0.05 |
+| Claude API（全资产扫描，~12个资产） | 约 $0.15~0.60 |
+| DeepSeek API（单次） | 约 ¥0.001（极便宜，推荐批量扫描使用） |
 | yfinance 数据 | 免费 |
 | CoinGecko PAXG | 免费 |
-| Binance 资金费率 | 免费 |
-| 恐惧贪婪指数 | 免费 |
 | 飞书机器人 | 免费 |

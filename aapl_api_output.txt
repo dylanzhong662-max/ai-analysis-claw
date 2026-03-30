@@ -1,0 +1,51 @@
+```json
+{
+  "period": "Weekly",
+  "stock_ticker": "AAPL",
+  "overall_market_sentiment": "Risk-Off",
+  "qqq_assessment": "QQQ周线长期趋势仍为多头（EMA50>EMA200），但近8周回调-7.7%，对AAPL形成短期拖累，但中长线框架下若QQQ能守住关键支撑，仍可能提供向上beta。",
+  "sector_assessment": "XLK跑输QQQ（-0.22%），科技板块整体承压，对AAPL构成利空。",
+  "macro_rate_environment": "10年期美债收益率上升趋势，Fed政策偏向抑制通胀，高利率环境对AAPL等高估值成长股的远期现金流折现构成压力，宏观因子不利。",
+  "earnings_risk_flag": false,
+  "earnings_days_away": 31,
+  "asset_analysis": [
+    {
+      "asset": "AAPL",
+      "regime": "Consolidation",
+      "action": "no_trade",
+      "bias_score": 0.48,
+      "entry_zone": null,
+      "profit_target": null,
+      "stop_loss": null,
+      "risk_reward_ratio": null,
+      "invalidation_condition": "价格放量突破并站稳周线EMA20（257.2）之上，同时ADX回升至25以上且+DI显著上穿-DI，表明整理结束、新上升趋势启动，届时可重新评估做多机会。",
+      "estimated_holding_weeks": 0,
+
+      "price_action_analysis": {
+        "trend_structure": "混合结构：价格低于周线EMA20（257.18），短期偏空调整；但高于周线EMA50（246.49）和EMA200（211.31），且EMA50 > EMA200（金叉），月线EMA20（236.76）支撑稳固，月线MACD（18.89）仍为正，长期牛市架构完整。",
+        "momentum_signals": "周线MACD（1.55）虽为正值但持续收敛下行，多头动能衰减；RSI-14（46.31）和RSI-7（38.72）均处于中性偏低区间，未显示极端超卖；随机指标（15.0/15.4）位于低位，综合显示短期动量偏弱，但未形成强烈空头趋势。",
+        "volatility_context": "周线ATR为12.21，显示中等波动水平；BB%B（0.152）显示价格位于布林带下轨附近，有潜在反弹需求；BB带宽%（16.74）有所扩张，但ADX（19.2）弱趋势，表明扩张可能更多源自无序波动而非趋势加速。",
+        "volume_obv": "近6周OBV呈下降趋势，与价格从高点回落构成量价背离，暗示近期上涨中机构存在派发行为，是谨慎信号。",
+        "relative_strength_vs_qqq": "近20周超额收益为+0.5%，跑赢QQQ。在近期科技股回调中显示出一定的抗跌性和相对韧性，为积极信号。"
+      },
+
+      "structured_analysis": {
+        "market_hierarchy_alignment": "存在冲突（L1-L3 vs L4-L5）：L1宏观（收益率上升，利空）、L3板块（XLK落后，利空）与L4个股（跑赢QQQ，利好）、L5技术（长期多头架构）方向不一致。L2指数（QQQ多头但近期回调）中性偏空。",
+        "earnings_cycle_phase": "处于财报间隔期，距下次财报约31天，属中等风险窗口，有足够时间观察趋势发展。",
+        "sector_rotation_signal": "XLK跑输QQQ，显示资金未集中流入科技板块，对AAPL短期表现构成压力。",
+        "regime_justification": "核心依据：1）周线价格在关键EMA50（246.49）附近获得支撑并震荡；2）ADX（19.2）< 20，明确指示市场处于无趋势或盘整（Consolidation）状态；3）多时间框架趋势信号冲突（周线短期偏空 vs 月线长期偏多）。"
+      },
+
+      "intelligence_analysis": {
+        "earnings_estimate_trend": "未来EPS预估（全年$8.512，增速14.1%）和营收预估（$465.02B，增速11.7%）均呈现稳健增长预期。连续4个季度盈利超预期，盈利质量高，且最近季度营收环比大幅加速（+31.3pp），为基本面提供有力支撑，对做多bias有正面贡献。",
+        "analyst_consensus": "综合评级偏向看多（66%），平均目标价$295.31，隐含+18.7%的上行空间，为中长期提供明确的价格目标参考。",
+        "valuation_context": "远期市盈率（29.23x）处于历史区间上沿，估值合理偏高，但被强劲的盈利增长（18.3% YoY）和加速的营收趋势部分抵消。高ROE（152.0%）和健康的自由现金流（$106.3B）支撑其溢价。",
+        "macro_catalyst": "中长线核心逻辑在于AI驱动的iPhone超级换机周期预期、服务业务高利润率的持续增长、以及印度等新兴市场的渗透率提升。这些结构性增长故事是长期投资者持仓信心的来源。",
+        "competitive_intelligence": "积极因素：1) Apple Intelligence的整合是未来1-2年关键的硬件销售催化剂；2) 服务收入增长（高利润率）提供估值缓冲；3) 印度市场增长对冲中国风险。风险因素：1) 欧盟DMA等监管政策可能影响服务收入；2) Vision Pro生态成熟仍需时间，短期贡献有限；3) 全球高利率环境可能抑制消费者换机意愿。"
+      },
+
+      "justification": "综合三维分析，当前AAPL处于一个复杂的交汇点。技术面：长期牛市架构（月线向上、周线EMA50/200金叉）完好，但短期陷入调整（价格低于EMA20、ADX弱趋势、OBV背离），显示为长期上升趋势中的健康盘整或短期回调，周线EMA50（246.49）是关键支撑。基本面：极为强劲，盈利连续超预期、营收加速、分析师目标价空间充足，提供了坚实的中长线价值基底。然而，宏观与市场环境构成主要阻力：高利率环境（L1）、科技板块整体跑输（L3）以及市场恐慌情绪（VIX>25）压制了短期做多动能。五层市场信号出现冲突，且ADX<20强制将制度判定为“Consolidation”。根据过滤规则，冲突信号及弱趋势制度下bias_score上限被限制在0.45，叠加OBV背离(-0.10)和VIX>25(-0.05)的扣分，尽管有基本面多项加分(+0.13)，综合bias_score仍低于0.50的做多门槛。因此，中长线策略应采取“no_trade”，等待技术面与宏观面出现更一致的看涨信号，如价格成功测试EMA50支撑后放量回升突破EMA20，或市场恐慌情绪（VIX）显著缓解。"
+    }
+  ]
+}
+```

@@ -1,0 +1,51 @@
+```json
+{
+  "period": "Weekly",
+  "stock_ticker": "MSFT",
+  "overall_market_sentiment": "Risk-Off",
+  "qqq_assessment": "QQQ虽处周线EMA金叉（50>200），但近期8周下跌7.7%，短期调整压力明显。其对MSFT的方向性影响为：在QQQ整体多头结构下，MSFT作为成分股会受拖累，但若QQQ企稳反弹，MSFT有跟随修复可能。",
+  "sector_assessment": "XLK跑输QQQ（超额-0.22%），科技板块整体弱势，对MSFT构成板块层面利空。",
+  "macro_rate_environment": "10年期收益率上升至4.44%，近8周趋势+5.6%，显示利率环境收紧。美联储偏鹰派政策预期持续，对高估值成长股（如MSFT）的估值倍数形成压制。",
+  "earnings_risk_flag": false,
+  "earnings_days_away": 30,
+  "asset_analysis": [
+    {
+      "asset": "MSFT",
+      "regime": "Trending-Down",
+      "action": "no_trade",
+      "bias_score": 0.48,
+      "entry_zone": "344.73 – 368.81",
+      "profit_target": null,
+      "stop_loss": null,
+      "risk_reward_ratio": null,
+      "invalidation_condition": "价格有效突破并站稳周线EMA20（429.31）上方，同时周线MACD转正且RSI-14回升至50以上，显示下跌趋势逆转。",
+      "estimated_holding_weeks": null,
+
+      "price_action_analysis": {
+        "trend_structure": "周线空头排列：价格低于EMA20(429.31)、EMA50(448.75)、EMA200(434.17)，但EMA50>EMA200仍为金叉（长期结构未完全破坏）。月线价格低于EMA20(432.55)，月线MACD(16.3)仍为正但快速收敛，显示长期上升动能减弱。",
+        "momentum_signals": "周线MACD(-28.57)负值扩大，空头动能强劲；RSI-14(25.53)和RSI-7(17.43)均处于超卖区，存在技术性反弹需求，但尚未出现明确背离或金叉。ADX(38.7)>25确认强趋势向下，-DI(34.5)远大于+DI(7.3)显示空头主导。",
+        "volatility_context": "周线ATR=24.08，波动率较高；布林带%B(0.034)接近下轨，带宽扩张(41.29%)，显示趋势加速下行。",
+        "volume_obv": "OBV近6周下降，与价格下跌同步，但无明显背离，显示卖出压力持续。",
+        "relative_strength_vs_qqq": "显著跑输QQQ，20周超额收益-21.95%，近6周持续弱势，显示个股层面抛压沉重。"
+      },
+
+      "structured_analysis": {
+        "market_hierarchy_alignment": "L1宏观（利空）、L2指数（QQQ短期利空）、L3板块（利空）、L4个股（利空）、L5技术（利空）——五层全部对齐空头方向，但QQQ长期金叉结构构成潜在冲突（长期vs短期）。",
+        "earnings_cycle_phase": "财报周期中期，距下次财报30天，处于中等风险窗口（16-30天），bias_score上限0.65。",
+        "sector_rotation_signal": "科技板块（XLK）落后于QQQ，显示资金流出科技股，对MSFT构成板块层面压力。",
+        "regime_justification": "周线价格低于所有关键EMA，MACD负值扩大，ADX>25确认强下降趋势，OBV同步下降，五层市场结构全部指向空头。"
+      },
+
+      "intelligence_analysis": {
+        "earnings_estimate_trend": "EPS预估维持强劲（全年增速26.1%），连续4季度超预期，营收环比加速（+2.9pp），盈利质量高。此为显著多头基本面因子。",
+        "analyst_consensus": "极度看多（95%买入评级），平均目标价$589.9，上行空间+65.3%，提供强劲长期价值锚。",
+        "valuation_context": "远期P/E 20.74处于合理区间，考虑26.1%的EPS增速，估值并不昂贵。营收增速16.4%保持高位，运营利润率47.1%显示强大盈利能力。",
+        "macro_catalyst": "核心矛盾在于：强劲的基本面（云/AI增长） vs 紧缩的宏观环境（高利率压制估值）。中长线行情将取决于利率拐点何时出现以及AI货币化进展。",
+        "competitive_intelligence": "Azure增速可能受企业IT支出放缓影响，但AI需求（Copilot、OpenAI合作）是长期增长引擎；Activision整合完成有望提振游戏业务；企业IT预算周期可能在2026年下半年回暖。"
+      },
+
+      "justification": "技术面与宏观面强烈冲突：技术指标全线空头（五层对齐下跌），但基本面极其强劲（盈利连续超预期、营收加速、分析师极度看多）。当前价格已跌至52周低点，周线RSI进入超卖区，存在技术性反弹可能，但下降趋势明确（ADX>25, MACD负值扩大）。中长线视角下，宏观利率环境是主要压制因素，而基本面提供了深跌后的长期价值。然而，根据框架规则：1）周线MACD<0且Trending-Down制度下禁止做多；2）做空面临基本面强劲支撑和极度超卖状态，盈亏比不佳且逆长期趋势（EMA50>200金叉）；3）VIX>31（Risk-Off环境）进一步压制做多意愿。因此，尽管预计算锚点给出RR=2.0的区间，但当前多空矛盾剧烈，建议等待更明确的技术反转信号（如周线MACD底背离或价格收复EMA20）或宏观面改善（利率转向）后再入场。暂定no_trade，监控价格在$344-369区间的反应。"
+    }
+  ]
+}
+```

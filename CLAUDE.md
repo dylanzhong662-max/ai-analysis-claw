@@ -2,23 +2,25 @@
 
 ## 项目概述
 
-本项目是一个**以大语言模型（LLM）为核心决策引擎的多资产交易信号系统**，目前覆盖两类资产：
+本项目是一个**以大语言模型（LLM）为核心决策引擎的多资产交易信号系统**，覆盖三类资产共 12 个标的：
 
-1. **黄金期货**（`gold_analysis.py` + `backtest_engine.py`）：采集 GC=F 期货行情与宏观数据，生成每日交易信号，支持历史回测验证。
-2. **谷歌科技股 GOOGL**（`google_backtest.py`）：科技股专用回测引擎，集成 QQQ 相对强度、VIX 风险环境、利率敏感度等科技股特有指标。
+1. **贵金属 / 大宗商品**（`gold_analysis.py` + `tech_stock_analysis.py`）：黄金、白银（SLV）、铜（COPX）、稀土/钨（REMX）、原油（USO）。
+2. **加密货币**（`btc_analysis.py`）：BTC 战略周期分析。
+3. **纳斯达克科技股**（`tech_stock_analysis.py`）：GOOGL、MSFT、NVDA、AAPL、META、AMZN。
 
-每套系统均包含两大功能：
-- **实时信号生成**：构建结构化提示词，通过 Claude 或 DeepSeek API 生成当日交易建议。
-- **历史回测验证**：对 LLM 的信号质量做历史模拟验证，输出胜率、盈亏比等绩效指标，并将结果反馈到下一次分析的提示词中，形成闭环。
+在单资产分析之上，新增两个横向模块：
+- **多资产扫描**（`market_scan.py`）：批量分析所有资产，LLM 额外输出板块排名、Top 5 机会、相关性风险。
+- **持仓跟踪**（`portfolio_tracker.py`）：读取 `portfolio.json` 持仓，结合实时价格和最新信号，输出 HOLD / STOP_TRIGGERED / TARGET_REACHED 等具体操作建议，并生成 `orders.json` 供交易接口读取。
 
 ---
 
 ## 核心设计理念
 
-- **LLM 作为推理引擎**：不依赖传统量化模型，改由 LLM 读取结构化技术指标 + 宏观数据，模拟对冲基金分析师的推理过程，输出标准化 JSON 交易信号。
+- **LLM 作为推理引擎**：不依赖传统量化模型，由 LLM 读取结构化技术指标 + 宏观数据，模拟对冲基金分析师推理过程，输出标准化 JSON 交易信号。
 - **防时间泄漏（Anti-Leakage）**：回测时提示词不包含具体日期，避免模型利用训练集中的未来知识作弊。
-- **风险约束硬编码**：所有信号必须满足 R:R ≥ 2.0、止损 ≥ 0.8×ATR-14，否则系统自动降级为 `no_trade`。
-- **性能反馈闭环**：`gold_analysis.py` 会读取 `backtest_results/performance.csv`，将最近的胜率、连续亏损次数等指标注入提示词，动态调整模型决策阈值。
+- **风险约束硬编码**：所有信号必须满足 R:R ≥ 2.0（科技股 ≥ 2.5）、止损 ≥ 0.8×ATR-14，否则系统自动降级为 `no_trade`。
+- **性能反馈闭环**：实时分析脚本读取 `backtest_results/performance.csv`，将胜率、连续亏损次数注入提示词，动态调整模型决策阈值。
+- **资产注册表集中管理**：所有资产的 ticker、分析脚本、输出文件路径统一在 `assets_config.py` 中注册，新增资产只需修改一处。
 
 ---
 
@@ -26,30 +28,36 @@
 
 ```
 大模型金融分析/
-├── gold_analysis.py          # 黄金实时信号生成脚本（主入口）
+├── gold_analysis.py          # 黄金实时信号生成 + PAXG 自动下单
+├── btc_analysis.py           # BTC 战略周期分析
+├── tech_stock_analysis.py    # 科技股 + 大宗商品 ETF 分析（通用）
+├── market_scan.py            # 多资产横向扫描 + 跨资产机会排名（新）
+├── portfolio_tracker.py      # 持仓跟踪 + 操作建议生成器（新）
+├── assets_config.py          # 资产注册表 + 扫描分组配置（新）
 ├── backtest_engine.py        # 黄金历史回测引擎
-├── google_backtest.py        # GOOGL 科技股回测引擎（含实时信号生成）
-├── backtest_prompts/         # 黄金回测用盲化提示词（每个交易日一个 .txt）
-│   └── YYYY-MM-DD.txt
-├── backtest_responses/       # 手动回测时保存 LLM JSON 响应（用户自行维护）
-│   └── YYYY-MM-DD.json
-├── backtest_results/         # 黄金回测输出（自动生成）
-│   ├── signals.csv           # 逐笔信号与交易记录
-│   └── performance.csv       # 汇总绩效指标
-├── googl_backtest_results/   # GOOGL 回测输出（自动生成）
-│   ├── signals.csv
-│   └── performance.csv
-├── googl_backtest_prompts/   # GOOGL 盲化提示词
-├── googl_backtest_responses/ # GOOGL 手动响应文件
-├── gold_prompt_output.txt    # 最新生成的实时提示词（自动覆盖）
-└── gold_api_output.txt       # 最新 API 调用返回的分析结果（自动覆盖）
+├── google_backtest.py        # GOOGL 科技股回测引擎
+├── feishu_notifier.py        # 飞书推送器
+│
+├── portfolio.json            # 当前持仓文件（用户维护）
+├── gold_prompt_output.txt    # 最新黄金提示词（自动覆盖）
+├── gold_api_output.txt       # 最新黄金分析结果
+├── {ticker}_api_output.txt   # 各资产最新分析结果
+├── market_scan_output.json   # 最新多资产扫描结果（结构化）
+├── market_scan_report.txt    # 最新多资产扫描报告（原始文本）
+├── portfolio_status.json     # 最新持仓状态评估（自动生成）
+├── orders.json               # 待执行订单列表（--export-orders 时生成）
+│
+├── backtest_prompts/         # 黄金回测盲化提示词
+├── backtest_responses/       # 手动回测 LLM 响应
+├── backtest_results/         # 黄金回测输出（signals.csv / performance.csv）
+└── googl_backtest_results/   # GOOGL 回测输出
 ```
 
 ---
 
-## 三个主脚本详解
+## 脚本详解
 
-### 1. `gold_analysis.py` — 实时信号生成
+### 1. `gold_analysis.py` — 黄金实时信号生成
 
 #### 数据流
 
@@ -73,11 +81,13 @@ backtest_results/          │
                                │                    │
                           保存为文件              call_claude_api()
                      gold_prompt_output.txt       call_deepseek_api()
-                         (默认模式)                     │
+                                                       │
                                                gold_api_output.txt
+                                                       │
+                                               execute_trade() ──> Binance PAXG/USDT
 ```
 
-#### 技术指标（`compute_indicators`）
+#### 技术指标
 
 | 类别 | 指标 |
 |------|------|
@@ -90,58 +100,130 @@ backtest_results/          │
 #### 运行方式
 
 ```bash
-# 仅生成提示词文件（默认）
-python gold_analysis.py
-
-# 直接调用 Claude API 获取分析结果
-python gold_analysis.py --api
-
-# 使用 DeepSeek 模型
-python gold_analysis.py --api --model deepseek-reasoner
-python gold_analysis.py --api --model deepseek-chat
+python3 gold_analysis.py                              # 只生成提示词文件
+python3 gold_analysis.py --api                        # 调用 Claude 分析
+python3 gold_analysis.py --api --model deepseek-reasoner
+python3 gold_analysis.py --api --trade                # 分析 + 自动下单
+python3 gold_analysis.py --api --trade --dry-run      # 模拟下单
 ```
 
 ---
 
-### 2. `backtest_engine.py` — 历史回测引擎
+### 2. `tech_stock_analysis.py` — 科技股 + 大宗商品 ETF 分析
 
-#### 三种运行模式
+支持任意 yfinance 可查询的 ticker，内置以下资产的专属行业上下文（`_INDUSTRY_CONTEXT`）：
 
-**模式一：生成提示词文件（无需 API Key）**
+| Ticker | 资产 | 专属分析维度 |
+|--------|------|------------|
+| GOOGL | Alphabet | 搜索广告 vs AI、Google Cloud、YouTube |
+| MSFT | Microsoft | Azure 增速、Copilot 货币化、OpenAI 押注 |
+| NVDA | NVIDIA | Blackwell 出货、AI CapEx 周期、出口管制 |
+| AAPL | Apple | 换机周期、服务收入、印度市场 |
+| META | Meta | 广告 CPM、Reels 货币化、Reality Labs |
+| AMZN | Amazon | AWS、零售利润率、广告业务 |
+| SLV | 白银 ETF | 金银比、工业需求、DXY 负相关 |
+| COPX | 铜矿 ETF | 全球 PMI、能源转型需求、中国敞口 |
+| REMX | 稀土/钨 ETF | 中国出口管制、EV 永磁体需求、去中国化 |
+| USO | 原油 ETF | OPEC+、EIA 库存、页岩油成本 |
+
+宏观数据：QQQ、XLK、SPY、^TNX、^VIX、DX-Y.NYB
+基本面情报：财报日期、EPS 预估、分析师评级、估值指标、盈利惊喜历史
+
 ```bash
-python backtest_engine.py --generate --start 2024-01-01 --end 2024-12-31 --step 5
+python3 tech_stock_analysis.py --ticker NVDA --api
+python3 tech_stock_analysis.py --ticker SLV  --api   # 白银
+python3 tech_stock_analysis.py --ticker REMX --api   # 稀土/钨
 ```
-- 按指定步长（默认每 5 个交易日）遍历历史日期
-- 每个日期生成盲化提示词（不含日期）保存到 `backtest_prompts/`
-- 用户手动粘贴到 Claude.ai，把 JSON 响应保存为 `backtest_responses/YYYY-MM-DD.json`
 
-**模式二：评估已有响应（无需 API Key）**
+---
+
+### 3. `market_scan.py` — 多资产横向扫描（新）
+
+两阶段流程：
+1. **Stage 1**：依次调用各资产对应的分析脚本，写入 `{ticker}_api_output.txt`
+2. **Stage 2**：汇总所有信号，额外发起一次 LLM 调用，输出跨资产排名
+
 ```bash
-python backtest_engine.py --evaluate
+python3 market_scan.py --api                          # 快速扫描（GOLD+BTC+NVDA+MSFT）
+python3 market_scan.py --group tech --api             # 6 只科技股
+python3 market_scan.py --group metals --api           # 贵金属/大宗商品
+python3 market_scan.py --group all --api              # 全部资产
+python3 market_scan.py --assets GOLD NVDA SLV --api   # 自定义列表
+python3 market_scan.py --group tech --skip-individual --api  # 跳过重新分析，直接汇总
 ```
-- 读取 `backtest_responses/` 下所有 JSON 文件
-- 获取对应日期之后的真实价格，模拟交易，计算 P&L
-- 输出绩效汇总到 `backtest_results/`
 
-**模式三：全自动回测（需要 DeepSeek API Key）**
+Stage 2 LLM 输出字段：`macro_themes`、`sector_ranking`、`top_opportunities`、`correlation_risks`、`watchlist`
+
+---
+
+### 4. `portfolio_tracker.py` — 持仓跟踪（新）
+
+读取 `portfolio.json`，结合实时价格和最新 LLM 信号，按以下优先级输出操作建议：
+
+| 优先级 | 状态 | 触发条件 | 生成订单 |
+|--------|------|---------|---------|
+| 1 | `STOP_TRIGGERED` | 当前价触及/跌破止损 | 市价平仓 |
+| 2 | `TARGET_REACHED` | 当前价触及/超过目标价 | 限价锁利 |
+| 3 | `SIGNAL_REVERSED` | LLM 信号方向与持仓相反 | 市价平仓 |
+| 4 | `REDUCE` | 信号变为 no_trade（bias < 0.5） | 市价减半仓 |
+| 5 | `HOLD` | 一切正常 | 无 |
+
 ```bash
-python backtest_engine.py --start 2024-01-01 --end 2024-12-31 --step 5
-python backtest_engine.py --start 2025-01-01 --end 2025-12-31 --resume  # 断点续跑
+python3 portfolio_tracker.py                         # 查看持仓状态
+python3 portfolio_tracker.py --update-signals        # 先刷新信号再评估
+python3 portfolio_tracker.py --export-orders         # 额外导出 orders.json
 ```
 
-#### 交易模拟规则（`simulate_trade`）
+`orders.json` 字段（对齐 Binance API）：`side`、`quantity`、`order_type`、`price`、`note`
 
-- 入场：信号日次日**开盘价**入场
+---
+
+### 5. `assets_config.py` — 资产注册表（新）
+
+所有资产的路由信息集中于此，`market_scan.py` 和 `portfolio_tracker.py` 共用：
+
+```python
+ASSET_UNIVERSE = {
+    "GOLD":  {"ticker": "GC=F",  "script": "gold_analysis.py",       "output_file": "gold_api_output.txt",  ...},
+    "NVDA":  {"ticker": "NVDA",  "script": "tech_stock_analysis.py", "output_file": "nvda_api_output.txt",  ...},
+    "REMX":  {"ticker": "REMX",  "script": "tech_stock_analysis.py", "output_file": "remx_api_output.txt",  ...},
+    ...
+}
+
+SCAN_GROUPS = {
+    "quick":      ["GOLD", "BTC", "NVDA", "MSFT"],
+    "tech":       ["GOOGL", "MSFT", "NVDA", "AAPL", "META", "AMZN"],
+    "metals":     ["GOLD", "SILVER", "COPPER", "RARE_EARTH"],
+    "commodities":["GOLD", "SILVER", "COPPER", "RARE_EARTH", "OIL"],
+    "all":        [...所有资产...],
+}
+```
+
+新增资产只需在此注册，无需改动其他脚本。
+
+---
+
+### 6. `backtest_engine.py` — 黄金历史回测引擎
+
+**三种模式：**
+
+```bash
+# 生成盲化提示词（无需 API Key）
+python3 backtest_engine.py --generate --start 2024-01-01 --end 2024-12-31 --step 5
+
+# 评估已有手动响应
+python3 backtest_engine.py --evaluate
+
+# 全自动回测（需要 DeepSeek API Key）
+python3 backtest_engine.py --start 2025-01-01 --end 2025-12-31
+python3 backtest_engine.py --start 2025-01-01 --end 2025-12-31 --resume  # 断点续跑
+```
+
+**交易模拟规则：**
+- 入场：信号日次日开盘价
 - 持仓期：最长 `EVAL_DAYS = 15` 个交易日
-- 出场逻辑（按优先级）：
-  1. 当日 Low ≤ stop_loss → `STOP_LOSS`
-  2. 当日 High ≥ profit_target → `TAKE_PROFIT`
-  3. 超过 15 天 → `TIMEOUT`，按最后收盘价结算
-- 入场有效性校验：实际入场价下 R:R < 1.5 → `INVALID_RR`，不计入成交
-
-#### 绩效统计（`compute_performance`）
-
-输出指标：总信号数、实际入场次数、no_trade 次数、胜率、平均盈利/亏损、盈利因子、最大回撤、总收益、逐月胜率。
+- 出场：Low ≤ stop_loss → `STOP_LOSS`；High ≥ profit_target → `TAKE_PROFIT`；超时 → `TIMEOUT`
+- 有效性校验：入场价下 R:R < 1.5 → `INVALID_RR`，不计入统计
 
 ---
 
@@ -154,55 +236,102 @@ python backtest_engine.py --start 2025-01-01 --end 2025-12-31 --resume  # 断点
 | `DEEPSEEK_API_KEY` | 见代码 | DeepSeek API Key |
 | `ANTHROPIC_MODEL` | `claude-sonnet-4-6` | 默认 Claude 模型 |
 
-支持通过环境变量覆盖所有配置值。
+所有变量支持通过环境变量覆盖。
 
 ---
 
-## LLM 输出格式（JSON Schema）
+## LLM 输出格式
 
-系统要求 LLM 严格输出如下 JSON：
+### 黄金 / 大宗商品（Daily）
 
 ```json
 {
   "period": "Daily",
   "overall_market_sentiment": "Risk-On | Risk-Off | Neutral",
   "dxy_assessment": "<DXY 趋势描述>",
-  "asset_analysis": [
-    {
-      "asset": "GOLD",
-      "regime": "Trending | Mean-Reverting | Choppy",
-      "action": "long | short | no_trade",
-      "bias_score": 0.0-1.0,
-      "entry_zone": "<价格区间>",
-      "profit_target": <float | null>,
-      "stop_loss": <float | null>,
-      "risk_reward_ratio": <float | null>,
-      "invalidation_condition": "<失效条件>",
-      "macro_catalyst": "<宏观逻辑>",
-      "technical_setup": "<指标信号描述>",
-      "justification": "<综合判断，≤300字>"
-    }
-  ]
+  "asset_analysis": [{
+    "asset": "GOLD",
+    "regime": "Trending | Mean-Reverting | Choppy",
+    "action": "long | short | no_trade",
+    "bias_score": 0.0,
+    "entry_zone": "<价格区间>",
+    "profit_target": null,
+    "stop_loss": null,
+    "risk_reward_ratio": null,
+    "invalidation_condition": "<失效条件>",
+    "macro_catalyst": "<宏观逻辑>",
+    "technical_setup": "<指标信号>",
+    "justification": "<≤300字综合判断>"
+  }]
 }
 ```
 
-解析逻辑（`parse_signal`）按优先级尝试：直接 JSON 解析 → 提取 markdown 代码块 → 大括号计数匹配，兼容 DeepSeek R1 的 `<think>` 推理标签。
+### 科技股 / ETF（Weekly，中长线）
+
+```json
+{
+  "period": "Weekly",
+  "stock_ticker": "NVDA",
+  "overall_market_sentiment": "Risk-On | Risk-Off | Neutral",
+  "qqq_assessment": "<QQQ 对该股的方向性影响>",
+  "sector_assessment": "<XLK 板块轮动信号>",
+  "macro_rate_environment": "<10Y 收益率对成长股估值影响>",
+  "earnings_risk_flag": false,
+  "asset_analysis": [{
+    "asset": "NVDA",
+    "regime": "Trending-Up | Trending-Down | Consolidation | ...",
+    "action": "long | short | no_trade",
+    "bias_score": 0.0,
+    "entry_zone": "<价格区间>",
+    "profit_target": null,
+    "stop_loss": null,
+    "risk_reward_ratio": null,
+    "estimated_holding_weeks": 8,
+    "price_action_analysis": {},
+    "structured_analysis": {},
+    "intelligence_analysis": {},
+    "justification": "<≤300字>"
+  }]
+}
+```
+
+### 多资产扫描汇总（market_scan.py Stage 2）
+
+```json
+{
+  "scan_date": "2026-03-30",
+  "macro_themes": [{"theme": "", "description": "", "beneficiary_assets": []}],
+  "sector_ranking": [{"sector": "", "strength": "Strong | Neutral | Weak", "assets": [], "rationale": ""}],
+  "top_opportunities": [{"rank": 1, "asset": "", "action": "", "bias_score": 0.0, "rationale": ""}],
+  "correlation_risks": [{"assets": [], "correlation_type": "", "risk_note": ""}],
+  "watchlist": [{"asset": "", "reason": "", "trigger_condition": ""}]
+}
+```
+
+解析逻辑（`parse_signal`）：直接 JSON → markdown 代码块提取 → 大括号计数匹配，兼容 DeepSeek R1 的 `<think>` 标签。
 
 ---
 
 ## 信号质量过滤规则
 
-以下规则在提示词中硬编码，由 LLM 自行执行：
-
+**通用（所有资产）：**
 - `bias_score < 0.50` → 强制 `no_trade`
-- 日线 MACD < 0 时，Trending 制度禁止做多
-- RSI-7 > 75 → 做多 bias_score 上限 0.55
-- 价格偏离 EMA-20 超过 3% → bias_score 上限 0.55
-- DXY 高于 EMA20（美元强势）→ 做多 bias_score 降低 0.05–0.10
-- ADX < 20 → 市场振荡，Trending 信号降级为 Choppy
+- R:R < 2.0（黄金）/ < 2.5（科技股）→ 强制 `no_trade`
+- ADX < 20 → 制度降级为 Choppy，bias_score 上限 0.45
 - OBV 与价格背离 → bias_score 降低 0.10
 
-性能反馈调整（来自 `performance.csv`）：
+**黄金专属：**
+- 日线 MACD < 0 且 Trending 制度 → 禁止做多
+- RSI-7 > 75 → 做多 bias_score 上限 0.55
+- DXY 高于 EMA20 → 做多 bias_score 降低 0.05–0.10
+
+**科技股专属：**
+- QQQ 死叉（EMA50 < EMA200）→ 禁止做多
+- 财报日 ≤ 5 天 → 强制 `no_trade`
+- 周线 RSI-7 > 75 → 做多 bias_score 上限 0.55
+- EPS 连续 2 季不及预期 → bias_score 降低 0.10
+
+**性能反馈（来自 `performance.csv`）：**
 - 胜率 < 40% → bias_score 门槛提升至 ≥ 0.65
 - 连续亏损 ≥ 2 次 → 需 bias_score ≥ 0.75 才入场
 
@@ -210,7 +339,7 @@ python backtest_engine.py --start 2025-01-01 --end 2025-12-31 --resume  # 断点
 
 ## 当前回测绩效
 
-### 黄金期货（2025 全年，截至最新数据）
+### 黄金期货（2025 全年）
 
 | 指标 | 数值 |
 |------|------|
@@ -224,43 +353,31 @@ python backtest_engine.py --start 2025-01-01 --end 2025-12-31 --resume  # 断点
 | 最大回撤 | -2.01% |
 | 总收益 | +37.71% |
 
-### GOOGL 科技股（2024-01 ~ 2025-12，截至最新数据）
+### GOOGL 科技股（2024-01 ~ 2025-12，v2 优化后）
 
 | 指标 | 数值 | 备注 |
 |------|------|------|
 | 总信号数 | 93 | |
 | 实际入场 | 39 | |
-| INVALID_RR 次数 | 21 | 占已发信号35%，次日跳空导致 |
+| INVALID_RR | 21 | 占35%，次日跳空导致 |
 | no_trade 率 | 35.5% | |
-| 胜率 | 35.9% | 多头37%，空头25% |
+| 胜率 | 35.9% | |
 | 平均盈利 | +5.21% | |
 | 平均亏损 | -2.76% | |
 | 盈利因子 | 1.06 | 待优化 |
 | 最大回撤 | -21.99% | 待优化 |
 | 总收益 | +3.88% | |
 
-**GOOGL 与黄金系统的关键差异：**
+**科技股 vs 黄金系统对比：**
 
-| 维度 | 黄金 | GOOGL |
+| 维度 | 黄金 | 科技股 |
 |------|------|-------|
-| 宏观驱动 | DXY、白银、10Y | QQQ相对强度、VIX、10Y |
-| 跳空风险 | 低 | 高（AI新闻、财报前后） |
-| R:R目标 | ≥ 2.0 | ≥ 2.5（含跳空缓冲） |
-| 延伸入场规则 | RSI-7 > 75 上限0.55 | RSI-7 > 82 上限0.65 |
-| OBV规则 | bias -0.10 | bias -0.10，RSI>75时额外-0.05 |
-| 性能反馈 | 已实现 | 已实现（v2，2025-03优化后） |
-
-**GOOGL 系统已知问题（优化前）：**
-- INVALID_RR 35%：LLM 按信号日收盘价计算 R:R=2.0，但次日开盘跳空后实际 R:R < 1.5
-- 无性能反馈：历史胜率低时模型未收到降阈信号
-- 延伸入场被扫：RSI-7 > 82 时入场，次日跳空反向概率高
-
-**已实施优化（2025-03）：**
-1. profit_target 锚点从 2.4×ATR → 3.5×ATR（含跳空缓冲）
-2. System Prompt 要求 R:R ≥ 2.5（信号日价格），明确跳空风险警告
-3. 新增 `load_googl_perf_metrics()` 函数，读取 `googl_backtest_results/performance.csv` 注入 prompt
-4. RSI-7 > 82 且偏离 EMA20 > 2% 时，bias_score 上限 0.65
-5. OBV 背离 + RSI-7 > 75 时，累计扣减 0.15（原 0.10）
+| 信号频率 | 日线 | 周线 |
+| 宏观驱动 | DXY、白银、10Y | QQQ、VIX、10Y |
+| 跳空风险 | 低 | 高（财报/AI 新闻） |
+| R:R 目标 | ≥ 2.0 | ≥ 2.5（含跳空缓冲） |
+| 持仓周期 | 最长 15 交易日 | 4–26 周 |
+| 性能反馈 | 已实现 | 已实现（v2） |
 
 ---
 
@@ -274,7 +391,9 @@ pip install yfinance pandas numpy anthropic openai curl_cffi urllib3 httpx
 
 ## 常见注意事项
 
-- **SSL 证书**：`urllib3.disable_warnings` + `curl_cffi` 的 `verify=False` 用于企业 VPN/代理环境，生产环境建议启用证书验证。
+- **SSL 证书**：`urllib3.disable_warnings` + `curl_cffi` 的 `verify=False` 用于企业 VPN/代理环境，生产环境建议启用验证。
 - **yfinance SQLite 冲突**：`backtest_engine.py` 用 `tempfile.mkdtemp()` 为每次运行创建独立缓存目录，避免并发冲突。
 - **数据重试**：`_download_with_retry` 最多重试 3 次，间隔递增，应对网络抖动。
-- **`backtest_responses/` 目录**：需用户手动创建并填充，或通过全自动模式（模式三）由程序自动完成。
+- **`portfolio.json` 维护**：每次开仓/平仓后需手动更新，或在交易接口对接完成后自动同步。
+- **`backtest_responses/` 目录**：需用户手动创建并填充，或通过全自动模式由程序自动完成。
+- **新增资产**：在 `assets_config.py` 注册 + 在 `tech_stock_analysis.py` 的 `_INDUSTRY_CONTEXT` 添加专属上下文（可选）。

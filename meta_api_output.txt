@@ -1,0 +1,47 @@
+```json
+{
+  "period": "Weekly",
+  "stock_ticker": "META",
+  "overall_market_sentiment": "Risk-Off",
+  "qqq_assessment": "QQQ近8周呈下跌趋势(-7.7%)，且处于恐慌(VIX>25)的市场环境中。尽管EMA长期为金叉结构，但短期下跌对META等成长股形成下行压力。",
+  "sector_assessment": "XLK板块跑输QQQ(-0.22%)，显示科技板块面临结构性压力，对META构成利空。",
+  "macro_rate_environment": "10年期收益率上升至4.44%，且趋势向上，美联储政策偏向紧缩，对依赖远期现金流的成长股估值形成压制。",
+  "earnings_risk_flag": false,
+  "earnings_days_away": 30,
+  "asset_analysis": [
+    {
+      "asset": "META",
+      "regime": "Consolidation",
+      "action": "no_trade",
+      "bias_score": 0.48,
+      "entry_zone": "501.04 – 550.4",
+      "profit_target": null,
+      "stop_loss": null,
+      "risk_reward_ratio": null,
+      "invalidation_condition": "价格放量突破并站稳周线EMA-20（~638.5）上方，同时周线MACD柱状线转正，且QQQ止跌回升。",
+      "estimated_holding_weeks": 0,
+      "price_action_analysis": {
+        "trend_structure": "所有周期EMA空头排列（价格低于周线及月线EMA20/50/200），但周线EMA50仍在EMA200之上，长期多头结构未被完全破坏。月线MACD(56.96)为正值但自高点回落。",
+        "momentum_signals": "周线MACD(-22.42)负值扩大，空头动能强劲。RSI-14(33.1)接近超卖区但未极端，RSI-7(21.86)显示短期严重超卖。Stochastic(%K=2.4)处于极低水平，存在技术性反抽可能。",
+        "volatility_context": "周线ATR为49.36，显示波动较大。BB %B (-0.225)跌破下轨，带宽扩张，表明价格处于超卖且趋势可能加速，但也警示反弹修复可能。",
+        "volume_obv": "OBV呈下降趋势，与价格下跌同步，未出现明显的底部背离信号，确认了下跌过程中的卖压。",
+        "relative_strength_vs_qqq": "近20周显著跑输QQQ(-8.32%)，个股表现弱于大盘和科技板块，显示严重的相对弱势。"
+      },
+      "structured_analysis": {
+        "market_hierarchy_alignment": "存在2层及以上冲突。L1宏观(收益率上升)和L2指数(QQQ下跌)利空；L3板块(XLK落后)和L4个股(跑输QQQ)利空；L5技术面(超卖但无转势信号)偏空。宏观与潜在做多意图冲突，个股与板块趋势冲突。",
+        "earnings_cycle_phase": "处于财报后周期，距离下次财报(2026-04-30)约30天，属于中等财报风险窗口。",
+        "sector_rotation_signal": "XLK跑输QQQ，科技板块整体资金流出或受压，对META不利。",
+        "regime_justification": "ADX(12.6) < 20，表明市场缺乏强趋势，更可能处于宽幅震荡或趋势转换的盘整阶段。价格跌破所有主要周均线，但RSI和BB%B显示严重超卖，短期进入多空博弈区。"
+      },
+      "intelligence_analysis": {
+        "earnings_estimate_trend": "全年EPS预期增速达26.0%，营收增速25.0%，显示基本面增长预期强劲。最近一季EPS超预期8.0%，但Q-1曾大幅不及预期，盈利质量有波动。",
+        "analyst_consensus": "极度看多(91%买入评级)，平均目标价$862.6，隐含+64.1%上行空间，提供了强大的基本面信心锚。",
+        "valuation_context": "远期市盈率(17.76)在高速增长背景下显得合理。季度营收呈现加速增长趋势(+9.2pp)，运营利润率(41.3%)和ROE(30.2%)优秀，财务质量高。",
+        "macro_catalyst": "核心矛盾在于高利率环境压制科技股估值，与公司自身强劲的基本面增长预期之间的背离。中长线行情需等待利率预期转向或公司盈利持续超预期以消化估值压力。",
+        "competitive_intelligence": "需关注：1）AI基础设施投入对利润的短期影响；2）Reels货币化是否持续贡献增量收入；3）Reality Labs亏损是否收窄；4）广告行业预算及来自TikTok的竞争。当前数据未显示结构性恶化。"
+      },
+      "justification": "综合三维分析：1）技术面：处于明确的下跌趋势，所有关键指标偏空，虽严重超卖但无任何转势信号，ADX显示趋势弱化进入盘整。2）基本面与估值：分析师共识极度乐观，增长预期强劲，估值合理，与疲软股价形成巨大背离，构成中长期潜在支撑。3）市场结构：宏观（高利率）、指数（QQQ跌）、板块（XLK弱）、个股（跑输）四重利空形成共振，仅基本面预期构成冲突。根据框架规则，存在两层以上冲突，bias_score上限0.50，且当前计算得分低于0.50交易门槛。尽管长期价值显著，但中短期下行风险未释放完毕，市场情绪（Risk-Off）与技术面均不支持立即建立中长线多头头寸。建议耐心等待价格在关键支撑区（如500-520）出现明确的企稳与底部结构（如周线级别阳包阴、RSI底背离、OBV转升），或宏观层面出现利率预期缓和信号后再行评估。"
+    }
+  ]
+}
+```

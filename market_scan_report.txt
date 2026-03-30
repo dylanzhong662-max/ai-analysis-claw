@@ -1,0 +1,116 @@
+```json
+{
+  "scan_date": "2026-03-30",
+  "macro_themes": [
+    {
+      "theme": "高利率与避险情绪压制成长股",
+      "description": "市场整体处于Risk-Off状态，VIX>31显示恐慌。美联储高利率环境持续压制科技等成长板块的估值，导致资金流出，多数资产呈现技术性下跌或盘整。",
+      "beneficiary_assets": []
+    }
+  ],
+  "sector_ranking": [
+    {
+      "sector": "Technology",
+      "strength": "Weak",
+      "assets": ["GOOGL", "MSFT", "NVDA", "AAPL", "META", "AMZN"],
+      "rationale": "宏观利率压制、板块资金流出、指数表现疲软（QQQ下跌）三重打击，所有科技细分板块（互联网、云、半导体、消费电子）均受拖累，整体弱势。"
+    }
+  ],
+  "top_opportunities": [
+    {
+      "rank": 1,
+      "asset": "GOOGL",
+      "action": "long",
+      "bias_score": 0.52,
+      "entry_zone": "264.9 – 283.77",
+      "stop_loss": null,
+      "profit_target": null,
+      "risk_reward_ratio": null,
+      "rationale": "在6只股票中相对bias_score最高。核心逻辑：基本面优异，当前价格已严重超卖（BB%B、Stochastic极低），尽管短期趋势向下，但提供了最具吸引力的左侧价值入场区域。"
+    },
+    {
+      "rank": 2,
+      "asset": "MSFT",
+      "action": "long",
+      "bias_score": 0.48,
+      "entry_zone": "344.73 – 368.81",
+      "stop_loss": null,
+      "profit_target": null,
+      "risk_reward_ratio": null,
+      "rationale": "基本面最为强劲（盈利连续超预期、营收加速），股价已跌至52周低点，周线RSI超卖。排名第2因bias_score略低于GOOGL，且技术面与宏观冲突更剧烈。"
+    },
+    {
+      "rank": 3,
+      "asset": "AAPL",
+      "action": "long",
+      "bias_score": 0.48,
+      "entry_zone": "N/A",
+      "stop_loss": null,
+      "profit_target": null,
+      "risk_reward_ratio": null,
+      "rationale": "长期牛市结构完好，基本面极为强劲，是典型的“好公司遇到坏市场”。排名第3因缺乏明确的短期技术入场区域，且宏观阻力巨大，等待更清晰信号。"
+    },
+    {
+      "rank": 4,
+      "asset": "META",
+      "action": "long",
+      "bias_score": 0.48,
+      "entry_zone": "501.04 – 550.4",
+      "stop_loss": null,
+      "profit_target": null,
+      "risk_reward_ratio": null,
+      "rationale": "基本面（分析师极度乐观、增长强劲）与股价疲软（跑输板块）存在巨大背离，提供了潜在机会。排名第4因技术面明确处于下跌趋势，转势信号更弱。"
+    },
+    {
+      "rank": 5,
+      "asset": "NVDA",
+      "action": "long",
+      "bias_score": 0.4,
+      "entry_zone": "160.69 – 174.35",
+      "stop_loss": null,
+      "profit_target": null,
+      "risk_reward_ratio": null,
+      "rationale": "长期技术趋势仍向上，但短期面临多重利空（营收减速、板块轮动、高利率）。bias_score最低（除AMZN外），排名第5因其调整压力在六者中最为显著，机会需更多耐心。"
+    }
+  ],
+  "correlation_risks": [
+    {
+      "assets": ["GOOGL", "MSFT", "AAPL", "NVDA", "META", "AMZN"],
+      "correlation_type": "正相关",
+      "risk_note": "所有资产同属大型科技股，是纳斯达克100核心成分。在当前的宏观驱动（高利率、Risk-Off）下，它们高度同向波动，同时持仓将放大系统性风险，而非分散风险。"
+    }
+  ],
+  "watchlist": [
+    {
+      "asset": "GOOGL",
+      "reason": "信号冲突，技术面处于明确下跌趋势，而宏观和板块环境不利，当前趋势尚未逆转。",
+      "trigger_condition": "价格成功收复并站稳EMA20（约283.77上方），且周线MACD出现拐头向上信号，显示下跌趋势缓解。"
+    },
+    {
+      "asset": "MSFT",
+      "reason": "强劲基本面与明确下跌趋势冲突，且框架规则禁止在Trending-Down且周线MACD<0时做多。",
+      "trigger_condition": "周线MACD转正，且价格趋势状态由Trending-Down转为Consolidation或Trending-Up。"
+    },
+    {
+      "asset": "NVDA",
+      "reason": "五层分析中四层利空，ADX指示震荡，缺乏明确方向性驱动。",
+      "trigger_condition": "价格放量突破当前盘整区间（174.35上方），并带动ADX上升，确认新的上升趋势启动。"
+    },
+    {
+      "asset": "AAPL",
+      "reason": "宏观压制与技术面调整冲突，当前处于复杂盘整状态，无明确入场信号。",
+      "trigger_condition": "价格在周线EMA50（246.49）获得强力支撑后反弹，或明确突破上方关键阻力位，同时宏观情绪（VIX）有所缓和。"
+    },
+    {
+      "asset": "META",
+      "reason": "技术面空头趋势与极度乐观的基本面预期形成两层以上冲突，bias_score受限。",
+      "trigger_condition": "技术面出现底部反转形态（如日线级别MACD底背离），且价格放量站上短期下降趋势线。"
+    },
+    {
+      "asset": "AMZN",
+      "reason": "五层分析出现四层利空，bias_score仅为0.35，低于交易门槛。OBV背离显示资金持续流出。",
+      "trigger_condition": "周线MACD转正，价格站上EMA20，且OBV指标同步回升，确认资金流入。"
+    }
+  ]
+}
+```
