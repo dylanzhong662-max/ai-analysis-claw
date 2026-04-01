@@ -3,44 +3,44 @@
   "period": "Weekly",
   "stock_ticker": "REMX",
   "overall_market_sentiment": "Risk-Off",
-  "qqq_assessment": "QQQ近8周下跌7.7%，但EMA仍维持金叉（长期多头结构）。趋势下行对高估值成长股构成压力，但REMX相对强势（跑赢QQQ 45.53%），表现出避险/逆周期属性。QQQ若持续下跌将拖累市场情绪，但REMX作为战略资源标的可能独立于科技股周期。",
-  "sector_assessment": "XLK板块相对QQQ超额收益-0.22%，科技板块整体落后，对传统科技股利空。但REMX属于原材料/战略金属ETF，与科技板块相关性较低，板块轮动信号对REMX直接影响有限。",
-  "macro_rate_environment": "10Y收益率上升至4.44%（近8周+5.6%），美联储政策偏鹰，高利率环境压制成长股估值。对REMX而言，利率上升既压制需求（经济放缓担忧），也可能因美元走强（DXY↑3.3%）压低商品价格，宏观环境总体不利。",
+  "qqq_assessment": "QQQ近8周下跌7.3%，EMA仍为金叉（长期多头结构），但短期趋势向下，对REMX构成拖累。REMX虽然跑赢QQQ，但QQQ整体疲软限制了其上行空间。",
+  "sector_assessment": "XLK板块相对QQQ超额收益为负（-1.39%），科技板块表现落后，整体市场风险偏好下降，对成长股估值构成压力，间接影响REMX这类与科技需求（电动汽车、半导体）相关的战略金属ETF。",
+  "macro_rate_environment": "10年期美债收益率升至4.342%（近8周+7.1%），收益率上升趋势对成长股估值构成压力。Fed政策偏向鹰派，高利率环境持续，不利于依赖未来现金流的成长型资产。",
   "earnings_risk_flag": false,
   "earnings_days_away": null,
   "asset_analysis": [
     {
       "asset": "REMX",
-      "regime": "Consolidation",
+      "regime": "Trending-Up",
       "action": "no_trade",
-      "bias_score": 0.45,
-      "entry_zone": null,
-      "profit_target": null,
-      "stop_loss": null,
-      "risk_reward_ratio": null,
-      "invalidation_condition": "若价格站稳周线EMA20（82.19）之上且周线MACD重新转强（柱状线放大），则可能恢复上涨趋势。若跌破73.92（52周低点），则趋势转空。",
-      "estimated_holding_weeks": null,
+      "bias_score": 0.35,
+      "entry_zone": "81.46 – 89.5",
+      "profit_target": 117.64,
+      "stop_loss": 69.4,
+      "risk_reward_ratio": 2.0,
+      "invalidation_condition": "周线收盘价跌破EMA-50（70.0）并确认转为下行趋势，或五层市场层级中出现3层以上利空信号（如QQQ转为死叉、宏观利率加速上行、板块持续走弱）。",
+      "estimated_holding_weeks": 16,
       "price_action_analysis": {
-        "trend_structure": "长期趋势向上（价格>EMA200周线，月线MACD正值），但短期进入调整：价格从103.2高点回调-16.6%，跌破周线EMA20后反弹但仍低于前期高点。EMA多头排列（20>50>200）但价格与EMA20距离仅4.8%，支撑薄弱。",
-        "momentum_signals": "周线MACD(6.95)正值但连续下降（从9.45降至6.95），动能减弱。RSI-14(55.83)中性，从超买区回落。Stochastic(44.1/44.9)中性偏低，无超卖信号。动量综合偏弱。",
-        "volatility_context": "周线ATR=8.32，波动率较高。BB%B=0.596（布林带中下部），带宽扩张（48.06%）显示趋势波动加大，但方向未明。",
-        "volume_obv": "OBV近6周下降，与价格从高点回落形成量价背离（机构派发迹象），削弱上涨可信度。",
-        "relative_strength_vs_qqq": "20周超额收益+45.53%，显著跑赢QQQ，显示相对强势。但近期QQQ下跌7.7%期间，REMX也从99.86跌至86.1（-13.8%），相对强势可能减弱。"
+        "trend_structure": "长期多头结构完整：价格高于所有周线EMA（20/50/200），且EMA-50高于EMA-200（金叉）；月线EMA-20（64.34）持续上行，月线MACD（7.63）为正，确认长期上升趋势。",
+        "momentum_signals": "周线MACD（6.39）仍为正但近期收敛（从9.45降至6.39），显示多头动能减弱；RSI-14（55.29）中性偏强；Stochastic（39.7/38.1）处于中性区间，无超买超卖信号。整体动量指标从高位回落，进入调整阶段。",
+        "volatility_context": "周线ATR-14为8.04，布林带带宽%为45.19（扩张），显示波动率较高且趋势可能加速；BB %B为0.562（布林带中轨上方），价格运行于中轨至上轨之间。",
+        "volume_obv": "近6周OBV趋势下降，与价格走势背离（价格震荡但OBV下行），暗示机构可能在上涨过程中派发，量价关系不利。",
+        "relative_strength_vs_qqq": "显著跑赢QQQ，20周超额收益达35.03%，显示独立强势。但近6周QQQ下跌期间REMX也出现回调，相对强度略有减弱。"
       },
       "structured_analysis": {
-        "market_hierarchy_alignment": "三层冲突：L1宏观（利率↑利空）、L2指数（QQQ↓利空）、L3板块（科技落后）均不利；L4个股（跑赢QQQ）有利；L5技术（调整中）。冲突层数≥2，上限bias_score 0.50。",
-        "earnings_cycle_phase": "ETF无个股财报风险，但需关注成分股财报季影响。",
-        "sector_rotation_signal": "科技板块（XLK）落后，对REMX间接利空（需求端担忧）。",
-        "regime_justification": "ADX(51.4)>25表明趋势存在，但价格从高点回落、MACD动能减弱、OBV背离，显示上升趋势暂停进入调整巩固阶段。"
+        "market_hierarchy_alignment": "五层中存在2层冲突：L1宏观（利率上升利空成长股）、L2指数（QQQ短期下跌）和L3板块（科技板块落后）均为负面；L4个股（跑赢QQQ）和L5技术（多头趋势）为正面。冲突层级≥2，降低信号质量。",
+        "earnings_cycle_phase": "无近期财报数据，不构成直接事件风险。",
+        "sector_rotation_signal": "XLK板块落后于QQQ，科技股整体承压，可能通过供应链需求（如半导体、电动汽车）间接影响稀土/战略金属需求预期。",
+        "regime_justification": "ADX（50.0）>25确认强趋势，EMA多头排列，月线MACD持续上行，符合'Trending-Up'制度。但动量指标和量价背离显示上涨动能减弱，进入高位震荡或调整阶段。"
       },
       "intelligence_analysis": {
-        "earnings_estimate_trend": "ETF无直接盈利数据，但成分股受稀土价格波动影响大。近期稀土价格因中国经济放缓需求担忧承压。",
-        "analyst_consensus": "数据缺失，无法评估目标价上行空间与评级变化。",
-        "valuation_context": "数据缺失，无法评估估值合理性。但作为商品ETF，估值更多取决于稀土价格而非传统财务指标。",
-        "macro_catalyst": "核心驱动：1）中国稀土出口管制政策；2）美欧供应链去中国化进程；3）电动车/国防需求增长。当前宏观逆风（高利率）压制商品需求前景。",
-        "competitive_intelligence": "积极因素：中国控制全球稀土供应链，地缘政治紧张可能推升价格；IRA法案推动非中国产能投资。风险：全球经济放缓削弱工业需求；美元走强压制商品价格。"
+        "earnings_estimate_trend": "无可用EPS预估数据，无法评估盈利趋势。",
+        "analyst_consensus": "无可用分析师评级和目标价数据，缺乏基本面催化剂参考。",
+        "valuation_context": "无可用估值数据（P/E、PEG等），无法判断价格是否合理。",
+        "macro_catalyst": "核心驱动逻辑为：1）电动汽车永磁体需求长期增长；2）美欧供应链去中国化战略（IRA法案等）推动非中国稀土产能投资；3）国防采购对稀土永磁体的稳定需求。但短期受高利率环境和科技股疲软拖累。",
+        "competitive_intelligence": "稀土/战略金属特有因素：中国控制全球大部分稀土和钨供给，地缘政治风险（出口管制）是价格主要上行催化剂；钨在半导体和国防领域需求刚性；关注Lynas、MP Materials等非中国产能扩张进度。"
       },
-      "justification": "综合评估建议暂停交易（no_trade）。虽然REMX长期趋势向上且相对QQQ强势，但当前面临多重逆风：1）技术面进入调整（价格自高点回落、MACD动能减弱、OBV背离）；2）宏观环境不利（利率上升、美元走强、VIX恐慌）；3）五层市场结构三层冲突（宏观、指数、板块均利空）。尽管作为战略金属ETF具备长期主题投资价值，但中短期内缺乏明确催化剂，且bias_score经规则过滤后仅0.45（冲突层数≥2上限0.50，VIX>25扣0.05），低于交易阈值0.50。建议等待更清晰信号：若价格能在80-82区域（周线EMA20/50支撑）企稳并重新放量突破90，则考虑做多；若跌破73.92前低，则趋势转空。"
+      "justification": "REMX长期趋势向上（周线/月线EMA多头排列），且相对QQQ显著跑赢，显示其独立强势。但当前面临三重不利因素：1）宏观层面利率上升压制成长股估值；2）QQQ和科技板块短期疲软拖累市场情绪；3）技术面出现量价背离（OBV下降）和动量收敛。五层市场层级中3层负面、2层正面，冲突较多，根据框架规则，bias_score上限0.50。结合OBV背离（-0.10）和VIX>25（-0.05），最终bias_score仅0.35，低于0.50的进场门槛。虽预计算入场区间和止损目标满足RR=2.0，但信号质量不足，建议暂不交易，等待更明确的多层市场对齐信号或价格调整至更优支撑位（如EMA-50附近）。中长线投资者可保持关注，若价格能在宏观压力下守住关键均线支撑，待市场情绪回暖后再寻机入场。"
     }
   ]
 }

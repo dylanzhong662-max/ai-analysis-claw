@@ -354,15 +354,17 @@ NO_PROXY=open.feishu.cn,feishu.cn
 
 ## 七、回测系统
 
+### 回测引擎说明（v3）
+
+| 引擎 | 适用资产 | EVAL_DAYS | 关键特性 |
+|------|---------|-----------|---------|
+| `backtest_engine.py` | 黄金（GC=F） | 20 | Mean-Reverting 过滤，1.5×ATR 止损 |
+| `tech_backtest_engine.py` | 科技股 / ETF | 22 | 仓位管理，SHORT_FILTERED，Parquet 缓存 |
+| `btc_backtest_engine.py` | BTC | 60 | 长周期评估，减半周期上下文 |
+
 ### 黄金回测
 
 ```bash
-# 生成历史提示词（不需要 API Key）
-python3 backtest_engine.py --generate --start 2024-01-01 --end 2024-12-31 --step 5
-
-# 评估已有手动响应
-python3 backtest_engine.py --evaluate
-
 # 全自动回测（需要 DeepSeek API Key）
 python3 backtest_engine.py --start 2025-01-01 --end 2025-12-31
 
@@ -370,29 +372,48 @@ python3 backtest_engine.py --start 2025-01-01 --end 2025-12-31
 python3 backtest_engine.py --start 2025-01-01 --end 2025-12-31 --resume
 ```
 
-### 科技股回测
+### 科技股回测（推荐使用新引擎）
 
 ```bash
-python3 google_backtest.py --generate --start 2024-01-01 --end 2025-12-31
-python3 google_backtest.py --evaluate
-python3 google_backtest.py --start 2024-01-01 --end 2025-12-31
+# NVDA / MSFT / GOOGL / AAPL / META / AMZN / SLV / COPX / REMX / USO
+python3 tech_backtest_engine.py --ticker NVDA --start 2025-01-01 --end 2025-12-31
+python3 tech_backtest_engine.py --ticker MSFT --start 2025-01-01 --end 2025-12-31
+
+# 断点续跑
+python3 tech_backtest_engine.py --ticker NVDA --start 2025-01-01 --end 2025-12-31 --resume
+```
+
+### 批量回测
+
+```bash
+# 同时跑多个资产 / 多个年份（后台 nohup）
+python3 run_all_backtests.py --assets GOLD NVDA MSFT --period both --model deepseek-reasoner
+```
+
+### BTC 回测
+
+```bash
+python3 btc_backtest_engine.py --start 2024-01-01 --end 2025-12-31
 ```
 
 ### 回测结果自动反馈
 
-回测完成后 `backtest_results/performance.csv` 自动更新。下次运行实时分析时，脚本自动读取最新胜率并注入提示词，动态调整 LLM 的入场阈值：
+回测完成后 `{ticker}_backtest_results/performance.csv` 自动更新。下次运行实时分析时，脚本自动读取最新胜率并注入提示词，动态调整 LLM 的入场阈值：
 
 - 胜率 < 40% → `bias_score` 门槛提升至 ≥ 0.65
 - 连续亏损 ≥ 2 次 → 需 `bias_score` ≥ 0.75 才入场
 
+### 数据缓存说明
+
+`tech_backtest_engine.py` 使用 Parquet 持久化缓存（`data_cache/`），首次运行会下载并保存，后续回测直接读本地文件。若 Yahoo Finance 限流（429），等待 2–4 小时再重跑，缓存不会丢失。
+
 ### 新增资产的回测方案
 
-对于新加入的资产，回测需按资产类型分别运行：
-
-| 资产类型 | 参考引擎 | 主要差异 |
-|---------|---------|---------|
-| 大宗商品 ETF（SLV/COPX/REMX/USO） | `backtest_engine.py` | 修改 ticker 和 `EVAL_DAYS` |
-| 科技股（MSFT/AAPL/META/AMZN） | `google_backtest.py` | 修改 ticker 和同业对标列表 |
+| 资产类型 | 推荐引擎 | 说明 |
+|---------|---------|------|
+| 黄金（GC=F） | `backtest_engine.py` | 专属提示词和宏观指标 |
+| 科技股 / ETF | `tech_backtest_engine.py --ticker XXX` | 通用，内置 `_INDUSTRY_CONTEXT` |
+| BTC | `btc_backtest_engine.py` | 专属减半周期逻辑 |
 
 ---
 

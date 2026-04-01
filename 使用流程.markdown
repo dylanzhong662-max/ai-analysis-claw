@@ -35,7 +35,7 @@ python3 tech_stock_analysis.py --ticker AAPL --api
 ```bash
 python3 tech_stock_analysis.py --ticker SLV  --api   # 白银
 python3 tech_stock_analysis.py --ticker COPX --api   # 铜矿
-python3 tech_stock_analysis.py --ticker REMX --api   # 稀土/钨
+python3 tech_stock_analysis.py --ticker REMX --api --model deepseek-reasoner   # 稀土/钨
 python3 tech_stock_analysis.py --ticker USO  --api   # 原油
 ```
 

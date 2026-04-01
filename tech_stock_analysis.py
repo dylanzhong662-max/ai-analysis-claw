@@ -37,8 +37,42 @@ DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 
 CLAUDE_MODELS   = {"claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"}
 DEEPSEEK_MODELS = {"deepseek-reasoner", "deepseek-chat"}
+OPENAI_MODELS   = {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "o1", "o3-mini"}
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai-proxy.org/v1")
+OPENAI_API_KEY  = os.getenv("OPENAI_API_KEY", ANTHROPIC_API_KEY)
+
+# 聚合平台每日调用限额（Claude + GPT 共享，DeepSeek R1 不受限）
+_PLATFORM_USAGE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "api_usage.json")
+PLATFORM_DAILY_LIMIT = int(os.getenv("PLATFORM_DAILY_LIMIT", "10"))
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+
+def _check_platform_quota() -> bool:
+    """检查聚合平台今日调用次数是否已达上限（Claude + GPT 共享，跨脚本共用同一 api_usage.json）"""
+    import json
+    from datetime import date
+    today = str(date.today())
+    usage = {"date": today, "count": 0}
+    if os.path.exists(_PLATFORM_USAGE_FILE):
+        try:
+            with open(_PLATFORM_USAGE_FILE) as f:
+                data = json.load(f)
+            if data.get("date") == today:
+                usage = data
+        except Exception:
+            pass
+    if usage["count"] >= PLATFORM_DAILY_LIMIT:
+        print(f"  [配额] 今日聚合平台已调用 {usage['count']}/{PLATFORM_DAILY_LIMIT} 次，已达上限，跳过")
+        return False
+    usage["count"] += 1
+    try:
+        with open(_PLATFORM_USAGE_FILE, "w") as f:
+            json.dump(usage, f)
+    except Exception:
+        pass
+    print(f"  [配额] 今日聚合平台调用: {usage['count']}/{PLATFORM_DAILY_LIMIT}")
+    return True
 
 
 # ─────────────────────────────────────────────
@@ -1179,6 +1213,21 @@ DXY: {_v(ms.get('dxy_last'))}  |  趋势: {ms.get('dxy_trend', 'N/A')}
 
 ---
 
+## 五B、仓位管理（position_size_pct）
+
+请在 JSON 中输出 `position_size_pct`（0.0–1.0），表示建议使用总资金的比例：
+
+| 条件 | 建议仓位 |
+|------|---------|
+| bias_score 0.50–0.59，Consolidation 制度 | 0.1–0.2（轻仓试探） |
+| bias_score 0.60–0.69，Trending 制度 | 0.3–0.5（标准仓） |
+| bias_score 0.70–0.79，多层共振+基本面支撑 | 0.5–0.7（加重仓） |
+| bias_score ≥ 0.80，趋势强劲+盈利加速 | 0.7–1.0（满仓） |
+| 周线 RSI-7 > 75 追高入场 | 上限 0.3（无论 bias 多高）|
+| 财报前 6–15 天 | 上限 0.3（降低财报二元风险敞口）|
+
+---
+
 ## 六、分析任务
 
 请基于以上三个维度的数据，按照**纳斯达克科技股中长线分析框架**完成分析，严格按以下 JSON 格式输出：
@@ -1205,6 +1254,7 @@ DXY: {_v(ms.get('dxy_last'))}  |  趋势: {ms.get('dxy_trend', 'N/A')}
       "risk_reward_ratio": <数字 或 null>,
       "invalidation_condition": "<使该观点失效的具体市场信号>",
       "estimated_holding_weeks": <预计持仓周数 4–26>,
+      "position_size_pct": <建议仓位占比 0.0–1.0，no_trade 时填 0.0>,
 
       "price_action_analysis": {{
         "trend_structure": "<EMA对齐情况，金叉/死叉状态，月线MACD方向>",
@@ -1238,8 +1288,9 @@ DXY: {_v(ms.get('dxy_last'))}  |  趋势: {ms.get('dxy_trend', 'N/A')}
 **硬性约束（违反任意一条 → 强制输出 no_trade）**：
 - `earnings_days_away ≤ 5` → 财报二元风险，强制 no_trade
 - QQQ 处于死叉（EMA50 < EMA200）→ 禁止做多
+- 做空需同时满足：QQQ EMA50 < EMA200 **且** VIX > 20 **且** 股价低于周线 EMA-200；三者缺一禁止做空
 - `risk_reward_ratio < 2.0` → 盈亏比不足
-- 止损距离 entry < 0.8×周ATR（{_v(w_atr14)}）= {round(0.8*atr, 2) if w_atr14 else 'N/A'} → 止损太紧
+- 止损距离 entry < 1.5×周ATR（{_v(w_atr14)}）= {round(1.5*atr, 2) if w_atr14 else 'N/A'} → 止损太紧（需给中长线足够呼吸空间）
 
 **信号质量过滤规则（全部适用）**：
 
@@ -1279,10 +1330,58 @@ DXY: {_v(ms.get('dxy_last'))}  |  趋势: {ms.get('dxy_trend', 'N/A')}
 
 
 # ─────────────────────────────────────────────
+# 信号解析工具
+# ─────────────────────────────────────────────
+
+def parse_signal(response: str) -> dict | None:
+    """从 LLM 响应中提取交易信号 JSON"""
+    import json, re
+    try:
+        return json.loads(response)
+    except Exception:
+        pass
+    match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1))
+        except Exception:
+            pass
+    start = response.find('{')
+    if start != -1:
+        depth, end = 0, -1
+        for i, c in enumerate(response[start:], start):
+            if c == '{':
+                depth += 1
+            elif c == '}':
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        if end != -1:
+            try:
+                return json.loads(response[start:end + 1])
+            except Exception:
+                pass
+    return None
+
+
+def extract_asset_signal(parsed: dict, asset: str) -> dict | None:
+    """从解析后的 JSON 中提取指定资产的信号字典"""
+    if not parsed:
+        return None
+    for item in parsed.get("asset_analysis", []):
+        if item.get("asset", "").upper() == asset.upper():
+            return item
+    return None
+
+
+# ─────────────────────────────────────────────
 # API 调用
 # ─────────────────────────────────────────────
 
 def call_claude_api(prompt: str) -> str:
+    if not _check_platform_quota():
+        return ""
     import time
     print(f"\n正在调用 Claude API（模型: {ANTHROPIC_MODEL}）...")
     client = Anthropic(
@@ -1332,6 +1431,173 @@ def call_deepseek_api(prompt: str, model: str) -> str:
     return ""
 
 
+def call_openai_api(prompt: str, model: str) -> str:
+    """通过聚合平台调用 GPT 系列模型（与 Claude 共用同一 API Key）"""
+    if not _check_platform_quota():
+        return ""
+    import time
+    print(f"\n正在调用 OpenAI API（模型: {model}，via 聚合平台）...")
+    client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
+    for attempt in range(3):
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                max_tokens=4000,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return response.choices[0].message.content or ""
+        except Exception as e:
+            print(f"  第 {attempt + 1} 次调用失败: {e}")
+            if attempt < 2:
+                time.sleep(5)
+    return ""
+
+
+def _call_any_model(prompt: str, model: str) -> str:
+    """统一模型路由"""
+    if model in DEEPSEEK_MODELS:
+        return call_deepseek_api(prompt, model)
+    elif model in OPENAI_MODELS:
+        return call_openai_api(prompt, model)
+    else:
+        return call_claude_api(prompt)
+
+
+def _force_no_trade(parsed: dict, raw_resp: str, asset_name: str, reason: str) -> str:
+    import json as _json
+    if parsed and "asset_analysis" in parsed:
+        for item in parsed["asset_analysis"]:
+            if item.get("asset", "").upper() == asset_name.upper():
+                item["action"]            = "no_trade"
+                item["bias_score"]        = 0.0
+                item["profit_target"]     = None
+                item["stop_loss"]         = None
+                item["risk_reward_ratio"] = None
+                item["position_size_pct"] = 0.0
+                item["justification"]     = f"[{reason}]，强制 no_trade。"
+        return _json.dumps(parsed, ensure_ascii=False, indent=2)
+    return raw_resp
+
+
+def call_dual_model_api(
+    prompt: str,
+    asset_name: str,
+    screener_model: str = "deepseek-reasoner",
+    confirm_model: str = None,
+    bias_threshold: float = 0.55,
+) -> str:
+    """双模型交叉验证：初筛 + 确认，方向分歧时强制 no_trade"""
+    import json as _json
+
+    if confirm_model is None:
+        confirm_model = ANTHROPIC_MODEL
+
+    print(f"\n[双模型] Step 1 初筛 ({screener_model})...")
+    screener_resp   = _call_any_model(prompt, screener_model)
+    screener_parsed = parse_signal(screener_resp)
+    screener_signal = extract_asset_signal(screener_parsed, asset_name)
+
+    if not screener_signal:
+        print("  [双模型] 初筛信号解析失败，直接返回初筛结果")
+        return screener_resp
+
+    screener_action = screener_signal.get("action", "no_trade")
+    screener_bias   = float(screener_signal.get("bias_score", 0) or 0)
+
+    if screener_action == "no_trade" or screener_bias < bias_threshold:
+        print(f"  [双模型] 初筛: {screener_action} (bias={screener_bias:.2f}) → 低于阈值 {bias_threshold}，跳过确认模型")
+        return screener_resp
+
+    print(f"  [双模型] 初筛: {screener_action} (bias={screener_bias:.2f}) → 触发确认模型 ({confirm_model})...")
+    confirm_resp   = _call_any_model(prompt, confirm_model)
+    confirm_parsed = parse_signal(confirm_resp)
+    confirm_signal = extract_asset_signal(confirm_parsed, asset_name)
+
+    if not confirm_signal:
+        print("  [双模型] 确认模型信号解析失败，使用初筛结果")
+        return screener_resp
+
+    confirm_action = confirm_signal.get("action", "no_trade")
+    confirm_bias   = float(confirm_signal.get("bias_score", 0) or 0)
+
+    if screener_action == confirm_action:
+        print(f"  [双模型] ✓ 一致: {confirm_action} | 初筛 bias={screener_bias:.2f}, 确认 bias={confirm_bias:.2f}")
+        note = (
+            f"\n\n<!-- [双模型验证] 初筛({screener_model}): {screener_action} bias={screener_bias:.2f}"
+            f" | 确认({confirm_model}): {confirm_action} bias={confirm_bias:.2f} | 结果: 一致，采用确认信号 -->"
+        )
+        return confirm_resp + note
+    else:
+        print(f"  [双模型] ✗ 分歧: 初筛={screener_action}(bias={screener_bias:.2f}), 确认={confirm_action}(bias={confirm_bias:.2f}) → 强制 no_trade")
+        return _force_no_trade(confirm_parsed, confirm_resp, asset_name,
+                               f"双模型分歧: 初筛({screener_model})={screener_action}, 确认({confirm_model})={confirm_action}")
+
+
+def call_voting_model_api(
+    prompt: str,
+    asset_name: str,
+    models: list = None,
+    bias_threshold: float = 0.55,
+    prefer_model: str = None,
+) -> str:
+    """多模型投票：多数决定最终信号，无共识时强制 no_trade"""
+    from collections import Counter
+
+    if models is None:
+        models = ["deepseek-reasoner", ANTHROPIC_MODEL, "gpt-4o"]
+    if prefer_model is None:
+        prefer_model = ANTHROPIC_MODEL
+
+    majority_threshold = len(models) // 2 + 1
+
+    votes = []
+    for model in models:
+        print(f"\n[投票] 调用 {model}...")
+        resp   = _call_any_model(prompt, model)
+        parsed = parse_signal(resp)
+        signal = extract_asset_signal(parsed, asset_name)
+        if signal:
+            action = signal.get("action", "no_trade")
+            bias   = float(signal.get("bias_score", 0) or 0)
+            if action != "no_trade" and bias < bias_threshold:
+                print(f"  [{model}] bias={bias:.2f} 低于阈值 → 计为 no_trade")
+                action = "no_trade"
+        else:
+            print(f"  [{model}] 信号解析失败 → 计为 no_trade")
+            action, bias = "no_trade", 0.0
+        print(f"  [{model}] 投票: {action} (bias={bias:.2f})")
+        votes.append((model, action, bias, parsed, resp))
+
+    action_counts = Counter(v[1] for v in votes)
+    vote_summary  = " | ".join(f"{v[0]}:{v[1]}(bias={v[2]:.2f})" for v in votes)
+    print(f"\n[投票] 汇总: {vote_summary}")
+    print(f"[投票] 统计: {dict(action_counts)}")
+
+    winning_action = None
+    for action, count in action_counts.most_common():
+        if count >= majority_threshold:
+            winning_action = action
+            break
+
+    note_prefix = f"\n\n<!-- [多模型投票] {vote_summary}"
+
+    if winning_action is None:
+        print("[投票] 无多数共识 → 强制 no_trade")
+        ref_vote = next((v for v in votes if v[0] == prefer_model), votes[0])
+        return _force_no_trade(ref_vote[3], ref_vote[4], asset_name, "多模型投票无共识") \
+               + note_prefix + " | 结果: 无共识，强制 no_trade -->"
+
+    if winning_action == "no_trade":
+        majority_votes = [v for v in votes if v[1] == "no_trade"]
+        selected = next((v for v in majority_votes if v[0] == prefer_model), majority_votes[0])
+        return selected[4] + note_prefix + " | 结果: 多数 no_trade -->"
+
+    print(f"[投票] ✓ 多数共识: {winning_action}")
+    majority_votes = [v for v in votes if v[1] == winning_action]
+    selected = next((v for v in majority_votes if v[0] == prefer_model), majority_votes[0])
+    return selected[4] + note_prefix + f" | 结果: 多数={winning_action}，采用 {selected[0]} 信号 -->"
+
+
 # ─────────────────────────────────────────────
 # 主程序
 # ─────────────────────────────────────────────
@@ -1360,6 +1626,18 @@ def main():
             f"默认: {ANTHROPIC_MODEL}"
         ),
     )
+    parser.add_argument("--dual-model",         action="store_true",
+                        help="启用双模型交叉验证（初筛+确认，分歧时强制 no_trade）")
+    parser.add_argument("--screener-model",      default="deepseek-reasoner",
+                        help="初筛/第一模型（默认: deepseek-reasoner）")
+    parser.add_argument("--confirm-model",       default=ANTHROPIC_MODEL,
+                        help=f"确认/第二模型（默认: {ANTHROPIC_MODEL}）")
+    parser.add_argument("--third-model",         default=None,
+                        help="第三模型，启用后切换为三模型投票制（例: gpt-4o）")
+    parser.add_argument("--prefer-model",        default=ANTHROPIC_MODEL,
+                        help=f"投票胜出时优先采用哪个模型的信号（默认: {ANTHROPIC_MODEL}）")
+    parser.add_argument("--dual-bias-threshold", default=0.55, type=float,
+                        help="触发确认模型/计票时的 bias 阈值（默认: 0.55）")
     args = parser.parse_args()
     ticker = args.ticker.upper()
 
@@ -1395,11 +1673,24 @@ def main():
     print(f"提示词已保存到: {output_path}")
 
     if args.api:
-        model = args.model
-        if model in DEEPSEEK_MODELS:
-            analysis = call_deepseek_api(prompt, model)
+        if args.dual_model and args.third_model:
+            analysis = call_voting_model_api(
+                prompt,
+                asset_name=ticker,
+                models=[args.screener_model, args.confirm_model, args.third_model],
+                bias_threshold=args.dual_bias_threshold,
+                prefer_model=args.prefer_model,
+            )
+        elif args.dual_model:
+            analysis = call_dual_model_api(
+                prompt,
+                asset_name=ticker,
+                screener_model=args.screener_model,
+                confirm_model=args.confirm_model,
+                bias_threshold=args.dual_bias_threshold,
+            )
         else:
-            analysis = call_claude_api(prompt)
+            analysis = _call_any_model(prompt, args.model)
 
         api_output_path = f"{ticker.lower()}_api_output.txt"
         with open(api_output_path, "w", encoding="utf-8") as f:

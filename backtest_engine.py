@@ -56,7 +56,7 @@ RESPONSES_DIR = Path("backtest_responses")
 SIGNALS_FILE  = OUTPUT_DIR / "signals.csv"
 PERF_FILE     = OUTPUT_DIR / "performance.csv"
 
-EVAL_DAYS    = 15    # 最长持仓天数（对应策略3-15天）
+EVAL_DAYS    = 20    # 最长持仓天数（中线持仓，给趋势更多时间发展）
 LOOKBACK_DAYS = 180  # 每个回测节点向前取多少天的数据
 
 # System Prompt（来自 analyz_data.markdown）
@@ -156,7 +156,7 @@ For each asset, you must choose exactly ONE of these three states:
 3. **no_trade**: No position recommended this period
    - Choppy regime (price oscillating around flat EMA, MACD near zero)
    - Conflicting regime signals (e.g., daily Trending but weekly Mean-Reverting with no resolution)
-   - Cannot find stop placement ≥ 0.8× ATR-14 that still gives R:R ≥ 2.0
+   - Cannot find stop placement ≥ 1.5× ATR-14 that still gives R:R ≥ 2.0
 
 **Default to `no_trade` when in doubt — but do NOT default to no_trade simply because RSI is above 70 in a Trending market.**
 
@@ -179,7 +179,7 @@ For EVERY `long` or `short` decision, you MUST specify:
 
 1. **entry_zone** (string): Price range for entry — Longs: near support; Shorts: near resistance
 2. **profit_target** (float): Specific price level to exit with profit. Must achieve R:R ≥ 2.0 measured from **current_price** (the last close in the data), NOT from entry_zone.
-3. **stop_loss** (float): Placed beyond Market Structure. Must be at least **0.8× ATR-14** away from current_price.
+3. **stop_loss** (float): Placed beyond Market Structure. Must be at least **1.5× ATR-14** away from current_price.
 4. **invalidation_condition** (string): Objective market signal that voids the thesis
 5. **bias_score** (float, 0–1): Conviction level
 6. **risk_reward_ratio** (float): Calculate using **current_price** as the reference entry:
@@ -192,7 +192,7 @@ For EVERY `long` or `short` decision, you MUST specify:
 |-------|------|-------|
 | Direction | profit_target > current_price > stop_loss | stop_loss > current_price > profit_target |
 | R:R | (profit_target − current_price) / (current_price − stop_loss) ≥ 2.0 | (current_price − profit_target) / (stop_loss − current_price) ≥ 2.0 |
-| Stop distance | current_price − stop_loss ≥ 0.8 × ATR-14 | stop_loss − current_price ≥ 0.8 × ATR-14 |
+| Stop distance | current_price − stop_loss ≥ 1.5 × ATR-14 | stop_loss − current_price ≥ 1.5 × ATR-14 |
 
 **If ANY check fails → set action = "no_trade", profit_target = null, stop_loss = null, risk_reward_ratio = null.**
 
@@ -233,7 +233,7 @@ Return your analysis as a **valid JSON object** with these exact fields:
 - profit_target must be **above** current_price for long, **below** current_price for short
 - stop_loss must be **below** current_price for long, **above** current_price for short
 - risk_reward_ratio = |profit_target − current_price| / |current_price − stop_loss| must be ≥ 2.0; if < 2.0, change action to no_trade
-- stop_loss distance from current_price must be ≥ 0.8 × ATR-14 (stops tighter than this will be noise-triggered)
+- stop_loss distance from current_price must be ≥ 1.5 × ATR-14 (stops tighter than this will be noise-triggered)
 - When action is no_trade: set profit_target, stop_loss, risk_reward_ratio to null
 - justification must be concise (max 300 characters)
 - bias_score for no_trade should typically be < 0.4
@@ -450,10 +450,19 @@ For other assets (BTC, OIL, ALU): no data is provided — set action to "no_trad
 # Claude API 调用
 # ─────────────────────────────────────────────
 
-def call_claude(prompt: str, model: str) -> dict:
-    """调用 DeepSeek API，含3次重试逻辑。"""
+def _get_api_client():
+    """优先使用阿里云 DashScope，否则 fallback 到 DeepSeek 官方。"""
+    aliyun_key  = os.environ.get("ALIYUN_API_KEY", "")
+    aliyun_url  = os.environ.get("ALIYUN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+    if aliyun_key:
+        return OpenAI(api_key=aliyun_key, base_url=aliyun_url), "阿里云DashScope"
     api_key = os.environ.get("DEEPSEEK_API_KEY", "sk-9574b3366dfd41178a5493d0f6af33c0")
-    client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com/v1")
+    return OpenAI(api_key=api_key, base_url="https://api.deepseek.com/v1"), "DeepSeek官方"
+
+
+def call_claude(prompt: str, model: str, rate_limit: int = 20) -> dict:
+    """调用 LLM API，含3次重试逻辑，支持阿里云 DashScope 和 DeepSeek 官方。"""
+    client, source = _get_api_client()
 
     for attempt in range(3):
         try:
@@ -467,14 +476,15 @@ def call_claude(prompt: str, model: str) -> dict:
             )
             return parse_signal(message.choices[0].message.content)
         except Exception as e:
-            if "rate" in str(e).lower() or "429" in str(e):
-                wait = 30 * (attempt + 1)
-                print(f"  [限速] 等待 {wait}s 后重试...")
+            err_str = str(e)
+            if "429" in err_str or "rate" in err_str.lower() or "quota" in err_str.lower():
+                wait = max(rate_limit * 2, 60 * (attempt + 1))
+                print(f"  [限速/{source}] 等待 {wait}s 后重试 (attempt {attempt+1}/3)...")
                 time.sleep(wait)
             else:
-                print(f"  [API错误] attempt {attempt+1}/3: {e}")
+                print(f"  [API错误/{source}] attempt {attempt+1}/3: {e}")
                 if attempt < 2:
-                    time.sleep(5)
+                    time.sleep(10)
 
     return {}
 
@@ -581,12 +591,31 @@ def simulate_trade(signal: dict, future_df: pd.DataFrame, entry_date: str) -> di
     action        = gold_signal.get("action", "no_trade")
     profit_target = gold_signal.get("profit_target")
     stop_loss     = gold_signal.get("stop_loss")
+    regime        = gold_signal.get("regime", "Trending")
+    bias_score    = gold_signal.get("bias_score", 0.5)
 
     base["action"] = action
 
     if action == "no_trade":
         base["exit_reason"] = "NO_TRADE"
         return base
+
+    # ── GOLD: Mean-Reverting 制度禁止入场（回测数据显示 0% 胜率）──
+    if regime == "Mean-Reverting":
+        base["exit_reason"] = "REGIME_FILTERED"
+        base["action"]      = "no_trade"
+        return base
+
+    # ── 仓位计算 ─────────────────────────────────────────────────
+    pos_size_llm = gold_signal.get("position_size_pct")
+    if pos_size_llm is not None:
+        try:
+            pos_size = round(min(1.0, max(0.0, float(pos_size_llm))), 2)
+        except (ValueError, TypeError):
+            pos_size = round(min(1.0, max(0.1, (float(bias_score) - 0.5) * 2)), 2)
+    else:
+        pos_size = round(min(1.0, max(0.1, (float(bias_score) - 0.5) * 2)), 2)
+    base["position_size"] = pos_size
 
     if profit_target is None or stop_loss is None:
         base["exit_reason"] = "MISSING_LEVELS"
@@ -646,8 +675,9 @@ def simulate_trade(signal: dict, future_df: pd.DataFrame, entry_date: str) -> di
             pnl = (base["exit_price"] - entry_price) / entry_price * 100
         else:
             pnl = (entry_price - base["exit_price"]) / entry_price * 100
-        base["pnl_pct"] = round(pnl, 4)
-        base["win"]     = pnl > 0
+        base["pnl_pct"]       = round(pnl, 4)
+        base["win"]           = pnl > 0
+        base["portfolio_pnl"] = round(pnl * base.get("position_size", 1.0), 4)
 
     return base
 
@@ -711,12 +741,8 @@ def compute_performance(records: list[dict]) -> dict:
 # ─────────────────────────────────────────────
 
 def get_trading_days(start: str, end: str, step: int) -> list[str]:
-    """返回区间内每隔 step 个交易日的日期列表。"""
-    session = _make_session()
-    df = yf.download(
-        TICKER, start=start, end=end,
-        interval="1d", auto_adjust=True, progress=False, session=session
-    )
+    """返回区间内每隔 step 个交易日的日期列表（带重试）。"""
+    df = _download_with_retry(TICKER, start, end, "1d", retries=5)
     all_days = [d.strftime("%Y-%m-%d") for d in df.index]
     return all_days[::step]
 
@@ -866,11 +892,12 @@ def run_evaluate():
 # ─────────────────────────────────────────────
 
 def run_backtest(start: str, end: str, step: int, model: str, dry_run: bool,
-                 resume: bool = False, start_from: str = None):
+                 resume: bool = False, start_from: str = None, rate_limit: int = 20):
     OUTPUT_DIR.mkdir(exist_ok=True)
 
-    print(f"回测参数: {start} ~ {end}  |  step={step} 交易日  |  model={model}")
-    print(f"评估持仓周期: {EVAL_DAYS} 天  |  dry_run={dry_run}")
+    _, src = _get_api_client()
+    print(f"回测参数: {start} ~ {end}  |  step={step} 交易日  |  model={model}  |  API={src}")
+    print(f"评估持仓周期: {EVAL_DAYS} 天  |  rate_limit={rate_limit}s  |  dry_run={dry_run}")
     if resume:
         print(f"模式: resume（跳过已完成节点，合并到现有 signals.csv）")
     if start_from:
@@ -918,7 +945,7 @@ def run_backtest(start: str, end: str, step: int, model: str, dry_run: bool,
             continue
 
         # 3. 调用 Claude API
-        signal = call_claude(prompt, model)
+        signal = call_claude(prompt, model, rate_limit)
         if not signal:
             print("-> 信号解析失败，跳过")
             continue
@@ -957,7 +984,7 @@ def run_backtest(start: str, end: str, step: int, model: str, dry_run: bool,
 
         print(f"-> {trade['exit_reason']}  pnl={trade['pnl_pct']}%")
 
-        time.sleep(2)  # 避免 API 限速
+        time.sleep(rate_limit)  # 避免 API 限速
 
     if not all_records:
         print("\n无有效记录（可能是 dry_run 模式或全部跳过）。")
@@ -1007,10 +1034,11 @@ if __name__ == "__main__":
     parser.add_argument("--start",     default="2025-01-01",      help="回测开始日期 YYYY-MM-DD")
     parser.add_argument("--end",       default="2025-12-31",      help="回测结束日期 YYYY-MM-DD")
     parser.add_argument("--step",      default=5,   type=int,     help="每隔N个交易日触发一次 (默认5)")
-    parser.add_argument("--model",     default="deepseek-reasoner", help="DeepSeek 模型 ID（仅全自动模式使用）")
-    parser.add_argument("--dry-run",    action="store_true",      help="只验证数据和 Prompt，不调用 API")
-    parser.add_argument("--resume",     action="store_true",      help="跳过已在 signals.csv 中的日期，新结果追加合并")
-    parser.add_argument("--start-from", default=None,             help="只处理该日期及之后的节点（格式 YYYY-MM-DD）")
+    parser.add_argument("--model",      default="deepseek-r1",       help="模型 ID（默认 deepseek-r1，支持阿里云 DashScope 和 DeepSeek 官方）")
+    parser.add_argument("--rate-limit", default=20,   type=int,     help="API 调用间隔秒数（默认20）")
+    parser.add_argument("--dry-run",    action="store_true",        help="只验证数据和 Prompt，不调用 API")
+    parser.add_argument("--resume",     action="store_true",        help="跳过已在 signals.csv 中的日期，新结果追加合并")
+    parser.add_argument("--start-from", default=None,               help="只处理该日期及之后的节点（格式 YYYY-MM-DD）")
     args = parser.parse_args()
 
     if args.generate:
@@ -1026,4 +1054,5 @@ if __name__ == "__main__":
             dry_run    = args.dry_run,
             resume     = args.resume,
             start_from = args.start_from,
+            rate_limit = args.rate_limit,
         )

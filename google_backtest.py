@@ -65,6 +65,17 @@ LOOKBACK_DAYS  = 200    # 回测节点向前取数据天数
 DEEPSEEK_API_KEY  = os.environ.get("DEEPSEEK_API_KEY", "sk-9574b3366dfd41178a5493d0f6af33c0")
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 
+# 阿里云 DashScope 支持（优先级高于 DeepSeek 官方）
+ALIYUN_API_KEY  = os.environ.get("ALIYUN_API_KEY", "")
+ALIYUN_BASE_URL = os.environ.get("ALIYUN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+
+
+def _get_api_client():
+    """优先使用阿里云 DashScope，否则 fallback 到 DeepSeek 官方。"""
+    if ALIYUN_API_KEY:
+        return OpenAI(api_key=ALIYUN_API_KEY, base_url=ALIYUN_BASE_URL), "阿里云DashScope"
+    return OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL), "DeepSeek官方"
+
 
 # ─────────────────────────────────────────────
 # 历史绩效反馈（从 signals.csv / performance.csv 读取）
@@ -407,12 +418,8 @@ def fetch_future_data(date: str) -> pd.DataFrame:
 
 
 def get_trading_days(start: str, end: str, step: int) -> list[str]:
-    """返回区间内每隔 step 个交易日的日期列表。"""
-    session = _make_session()
-    df = yf.download(
-        TICKER, start=start, end=end,
-        interval="1d", auto_adjust=True, progress=False, session=session
-    )
+    """返回区间内每隔 step 个交易日的日期列表（带重试）。"""
+    df = _download_with_retry(TICKER, start, end, "1d", retries=5)
     all_days = [d.strftime("%Y-%m-%d") for d in df.index]
     return all_days[::step]
 
@@ -891,8 +898,8 @@ def parse_signal(raw: str) -> dict:
 # DeepSeek API 调用
 # ─────────────────────────────────────────────
 
-def call_deepseek(prompt: str, model: str = "deepseek-reasoner") -> dict:
-    client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
+def call_deepseek(prompt: str, model: str = "deepseek-r1", rate_limit: int = 20) -> dict:
+    client, source = _get_api_client()
     for attempt in range(3):
         try:
             resp = client.chat.completions.create(
@@ -905,14 +912,15 @@ def call_deepseek(prompt: str, model: str = "deepseek-reasoner") -> dict:
             )
             return parse_signal(resp.choices[0].message.content)
         except Exception as e:
-            if "rate" in str(e).lower() or "429" in str(e):
-                wait = 30 * (attempt + 1)
-                print(f"  [限速] 等待 {wait}s 后重试...")
+            err_str = str(e)
+            if "429" in err_str or "rate" in err_str.lower() or "quota" in err_str.lower():
+                wait = max(rate_limit * 2, 60 * (attempt + 1))
+                print(f"  [限速/{source}] 等待 {wait}s 后重试 (attempt {attempt+1}/3)...")
                 time.sleep(wait)
             else:
-                print(f"  [API错误] attempt {attempt+1}/3: {e}")
+                print(f"  [API错误/{source}] attempt {attempt+1}/3: {e}")
                 if attempt < 2:
-                    time.sleep(5)
+                    time.sleep(10)
     return {}
 
 
@@ -1182,11 +1190,13 @@ def run_evaluate():
 # ─────────────────────────────────────────────
 
 def run_backtest(start: str, end: str, step: int, model: str,
-                 dry_run: bool, resume: bool = False, start_from: str = None):
+                 dry_run: bool, resume: bool = False, start_from: str = None,
+                 rate_limit: int = 20):
     OUTPUT_DIR.mkdir(exist_ok=True)
 
-    print(f"GOOGL 回测参数: {start} ~ {end}  |  step={step}  |  model={model}")
-    print(f"评估周期: {EVAL_DAYS} 天  |  dry_run={dry_run}")
+    _, src = _get_api_client()
+    print(f"GOOGL 回测参数: {start} ~ {end}  |  step={step}  |  model={model}  |  API={src}")
+    print(f"评估周期: {EVAL_DAYS} 天  |  rate_limit={rate_limit}s  |  dry_run={dry_run}")
     print("-" * 60)
 
     perf_metrics = load_googl_perf_metrics()
@@ -1226,7 +1236,7 @@ def run_backtest(start: str, end: str, step: int, model: str,
             print(f"-> [DRY RUN] price=${price}  prompt={len(prompt)}字符")
             continue
 
-        signal = call_deepseek(prompt, model)
+        signal = call_deepseek(prompt, model, rate_limit)
         if not signal:
             print("-> 信号解析失败，跳过")
             continue
@@ -1261,7 +1271,7 @@ def run_backtest(start: str, end: str, step: int, model: str,
         all_records.append(record)
         print(f"-> {trade['exit_reason']}  pnl={trade['pnl_pct']}%")
 
-        time.sleep(2)  # 避免 API 限速
+        time.sleep(rate_limit)  # 避免 API 限速
 
     if not all_records:
         print("\n无有效记录（dry_run 或全部跳过）。")
@@ -1321,7 +1331,8 @@ if __name__ == "__main__":
     parser.add_argument("--start",      default="2024-01-01",      help="开始日期 YYYY-MM-DD")
     parser.add_argument("--end",        default="2025-12-31",      help="结束日期 YYYY-MM-DD")
     parser.add_argument("--step",       default=5,   type=int,     help="每隔N个交易日一次（默认5）")
-    parser.add_argument("--model",      default="deepseek-chat",   help="模型 ID（deepseek-chat / deepseek-reasoner）")
+    parser.add_argument("--model",      default="deepseek-r1",     help="模型 ID（默认 deepseek-r1，支持阿里云 DashScope）")
+    parser.add_argument("--rate-limit", default=20,   type=int,   help="API 调用间隔秒数（默认20）")
     parser.add_argument("--dry-run",    action="store_true",       help="只验证数据，不调用 API")
     parser.add_argument("--resume",     action="store_true",       help="跳过已完成节点，追加合并")
     parser.add_argument("--start-from", default=None,              help="从指定日期开始处理")
@@ -1340,4 +1351,5 @@ if __name__ == "__main__":
             dry_run    = args.dry_run,
             resume     = args.resume,
             start_from = args.start_from,
+            rate_limit = args.rate_limit,
         )
