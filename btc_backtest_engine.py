@@ -1124,7 +1124,7 @@ if __name__ == "__main__":
     parser.add_argument("--start",      default="2024-01-01",       help="回测开始日期 YYYY-MM-DD")
     parser.add_argument("--end",        default="2024-12-31",       help="回测结束日期 YYYY-MM-DD")
     parser.add_argument("--step",       default=5,    type=int,     help="每隔N个交易日触发一次（默认5）")
-    parser.add_argument("--model",      default="deepseek-r1",      help="模型 ID（默认 deepseek-r1）")
+    parser.add_argument("--model",      default="deepseek-reasoner", help="模型 ID（默认 deepseek-reasoner）")
     parser.add_argument("--rate-limit", default=20,   type=int,     help="API 调用间隔秒数（默认20）")
     parser.add_argument("--dry-run",    action="store_true",        help="只验证数据，不调用 API")
     parser.add_argument("--resume",     action="store_true",        help="跳过已完成节点，追加合并")
