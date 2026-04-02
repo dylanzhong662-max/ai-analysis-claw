@@ -24,7 +24,7 @@ python3 btc_analysis.py --api --model deepseek-reasoner
 #### 科技股（GOOGL / MSFT / NVDA / AAPL / META / AMZN）
 
 ```bash
-python3 tech_stock_analysis.py --ticker GOOGL --api
+python3 tech_stock_analysis.py --ticker GOOGL --api --model deepseek-reasoner
 python3 tech_stock_analysis.py --ticker NVDA --api --model deepseek-reasoner
 python3 tech_stock_analysis.py --ticker MSFT --api
 python3 tech_stock_analysis.py --ticker AAPL --api
@@ -36,7 +36,7 @@ python3 tech_stock_analysis.py --ticker AAPL --api
 python3 tech_stock_analysis.py --ticker SLV  --api   # 白银
 python3 tech_stock_analysis.py --ticker COPX --api   # 铜矿
 python3 tech_stock_analysis.py --ticker REMX --api --model deepseek-reasoner   # 稀土/钨
-python3 tech_stock_analysis.py --ticker USO  --api   # 原油
+python3 tech_stock_analysis.py --ticker USO  --api --model deepseek-reasoner  # 原油
 ```
 
 ---

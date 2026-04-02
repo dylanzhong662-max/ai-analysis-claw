@@ -349,7 +349,72 @@ source .env && python3 feishu_notifier.py --mode test
 
 ---
 
-## 九、费用说明
+## 九、Web 仪表盘（前后端）
+
+项目新增了可视化 Web 仪表盘，包含 FastAPI 后端和 React 前端。
+
+### 目录结构
+
+```
+大模型金融分析/
+├── backend/          # FastAPI REST API（Python）
+│   ├── main.py       # 入口，所有路由注册
+│   ├── models.py     # SQLite ORM（positions/trades/orders/signals_cache）
+│   ├── schemas.py    # Pydantic v2 数据校验
+│   ├── signal_reader.py  # 读取 *_api_output.txt 信号文件
+│   ├── price_fetcher.py  # yfinance 实时价格（5分钟缓存）
+│   ├── sync.py           # SQLite → portfolio.json 自动同步
+│   └── routers/          # dashboard / portfolio / trades / signals / scan
+├── frontend/         # React + TypeScript + Tailwind 前端
+│   ├── src/pages/    # Dashboard / MarketScan / Portfolio / TradeHistory
+│   └── dist/         # 生产构建产物（npm run build 后生成）
+├── trading.db        # SQLite 数据库（自动创建）
+├── start.sh          # 本地一键启动脚本
+└── deploy/           # 服务器部署配置
+    ├── nginx.conf    # Nginx 反向代理配置
+    ├── backend.service  # systemd 服务文件
+    └── deploy.sh     # 自动化部署脚本
+```
+
+### 本地启动
+
+```bash
+# 一键启动（后端 :8000 + 前端开发服务器 :3000）
+bash start.sh
+
+# 分别启动
+cd backend && uvicorn main:app --reload --port 8000
+cd frontend && npm run dev -- --port 3000
+```
+
+访问：
+- 前端：http://localhost:3000
+- API 文档：http://localhost:8000/docs
+
+### 服务器部署
+
+```bash
+# 首次部署（在本地 Mac 执行）
+bash deploy/deploy.sh 你的服务器IP root
+
+# 更新部署（代码有改动）
+bash deploy/deploy.sh 你的服务器IP root --update
+```
+
+部署完成后访问：`http://你的服务器IP`（80 端口）
+
+### 功能页面
+
+| 页面 | 路径 | 功能 |
+|------|------|------|
+| 仪表盘 | `/` | KPI 卡片、宏观环境、告警横幅、12 资产信号矩阵 |
+| 市场扫描 | `/scan` | 信号详情卡片、触发分析、扫描汇总报告 |
+| 持仓管理 | `/portfolio` | 新建/平仓/删除持仓，实时 P&L，状态告警 |
+| 交易记录 | `/trades` | 胜率/盈利因子统计，手动录入，筛选分页 |
+
+---
+
+## 十、费用说明
 
 | 项目                | 费用                   |
 | ------------------- | ---------------------- |

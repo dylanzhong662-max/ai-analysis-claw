@@ -1,0 +1,48 @@
+```json
+{
+  "period": "Weekly",
+  "stock_ticker": "USO",
+  "overall_market_sentiment": "Risk-Off",
+  "qqq_assessment": "QQQ近8周下跌2.8%，但EMA仍为金叉多头结构，整体处于高位震荡。对USO方向性影响有限，因USO为原油ETF，与科技股相关性较低，近期大幅跑赢QQQ（相对强弱80.69%）显示明显的板块轮动效应。",
+  "sector_assessment": "XLK科技板块相对QQQ超额收益为负（-0.41%），显示科技股近期落后大盘，资金可能流出科技板块。这对USO间接有利，因资金可能轮动至大宗商品等防御性/通胀对冲资产。",
+  "macro_rate_environment": "10年期美债收益率升至4.319%（近8周+6.5%），美元指数DXY上升3.3%，显示紧缩货币政策环境持续。高利率环境通常压制成长股估值，但对原油等实物资产影响复杂：美元走强压制油价，但经济韧性可能支撑需求。当前宏观环境对成长股不利，对原油中性偏空。",
+  "earnings_risk_flag": false,
+  "earnings_days_away": null,
+  "asset_analysis": [
+    {
+      "asset": "USO",
+      "regime": "Trending-Up",
+      "action": "no_trade",
+      "bias_score": 0.48,
+      "entry_zone": "119.77 – 128.41",
+      "profit_target": null,
+      "stop_loss": null,
+      "risk_reward_ratio": null,
+      "invalidation_condition": "周线收盘价跌破EMA-20（92.52）并伴随MACD死叉；或OPEC+宣布大幅增产导致油价趋势反转。",
+      "estimated_holding_weeks": 0,
+      "position_size_pct": 0.0,
+      "price_action_analysis": {
+        "trend_structure": "长期多头结构完整：价格高于所有EMA（20/50/200周），EMA50>EMA200金叉，月线MACD为正且扩大。",
+        "momentum_signals": "MACD周线正值扩大显示多头动能强劲，但RSI-14周线86.18、RSI-7周线94.09均处于极度超买区，Stochastic超买死叉，显示动量已过度延伸，短期回调风险极高。",
+        "volatility_context": "周线ATR=8.64，BB带宽扩张至100.1%（趋势加速），BB %B=0.962（接近上轨），显示波动率扩大且价格处于波段高位。",
+        "volume_obv": "OBV近6周上升，量价配合良好，显示机构资金持续流入。",
+        "relative_strength_vs_qqq": "大幅跑赢QQQ，20周相对强弱80.69%，显示极强的独立上涨动能。"
+      },
+      "structured_analysis": {
+        "market_hierarchy_alignment": "L1宏观（利率上升）利空成长股但对原油中性偏空，L2指数（QQQ震荡）中性，L3板块（科技落后）间接利好原油轮动，L4个股（USO强势）有利，L5技术（趋势向上但超买）冲突。存在2层冲突（L1与L4，L5内部超买与趋势冲突）。",
+        "earnings_cycle_phase": "ETF无财报事件，无财报周期风险。",
+        "sector_rotation_signal": "XLK落后QQQ，显示科技板块资金流出，可能部分轮动至能源/大宗商品，对USO间接利好。",
+        "regime_justification": "周线ADX=34.6>25确认强趋势，价格高于所有EMA，OBV上升确认量价配合，虽RSI超买但趋势仍未破坏，故判断为Trending-Up。"
+      },
+      "intelligence_analysis": {
+        "earnings_estimate_trend": "ETF无盈利数据，不适用。",
+        "analyst_consensus": "ETF通常无分析师评级，目标价不适用。",
+        "valuation_context": "市净率1.8，相对历史估值处于中高位。估值主要取决于原油现货价格及期货升贴水结构。",
+        "macro_catalyst": "核心驱动：1）地缘政治风险溢价（中东紧张局势）；2）OPEC+减产执行情况；3）全球需求前景（尤其中国经济复苏）；4）美元走势与库存变化（EIA周报）。",
+        "competitive_intelligence": "原油专属因素：需密切关注：1）OPEC+6月会议是否延续减产；2）美国原油库存变化（EIA周报）；3）中国炼油需求及航煤恢复；4）美国页岩油产量响应（当前WTI油价已远高于页岩油盈亏平衡点$55-65）；5）美元持续走强可能压制以美元计价的油价。"
+      },
+      "justification": "USO周线及月线均处于强劲上升趋势中，技术结构多头排列，资金持续流入。然而，周线RSI-7高达94.09、RSI-14达86.18，处于极端超买区域，Stochastic死叉，价格已大幅偏离EMA-20（+34%），短期回调风险极高。五层市场分析存在两层冲突（宏观利率环境压制与个股强势冲突，技术面超买与趋势冲突），根据信号质量过滤规则，两层冲突导致bias_score上限为0.50。加之周线RSI-7>75做多bias_score上限0.55，价格偏离EMA-20>5%上限0.55，综合计算bias_score仅0.48，低于0.50的no_trade阈值。此外，当前VIX=24.54>20，对做多有小幅压制。从中长线视角，尽管趋势向上，但当前价位追多风险收益比不佳，应等待回调至关键支撑（如EMA-20附近）或超买指标修复后再评估入场机会。"
+    }
+  ]
+}
+```
