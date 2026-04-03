@@ -1,0 +1,7 @@
+datetime,portfolio_value,cash,cash_deposits_total,cash_withdrawals_total,cash_adjustments_net_total,cash_financing_enabled,cash_financing_account_mode,cash_financing_credit_total,cash_financing_debit_total,cash_financing_net_total,cash_financing_days_accrued,cash_financing_events,cash_financing_last_credit_rate_used,cash_financing_last_debit_rate_used,positions,cash_deposits_period,cash_withdrawals_period,cash_adjustments_net_period,cash_financing_credit_period,cash_financing_debit_period,cash_financing_net_period,return,cash_adjusted_portfolio_value
+2025-01-02 08:30:00-05:00,100000.0,100000.0,0.0,0.0,0.0,False,margin,0.0,0.0,0.0,0,0,,,[],0.0,0.0,0.0,0.0,0.0,0.0,,100000.0
+2025-01-02 09:30:00-05:00,100000.0,100000.0,0.0,0.0,0.0,False,margin,0.0,0.0,0.0,0,0,,,[],0.0,0.0,0.0,0.0,0.0,0.0,0.0,100000.0
+2025-01-02 09:30:00-05:00,100000.0,100000.0,0.0,0.0,0.0,False,margin,0.0,0.0,0.0,0,0,,,[],0.0,0.0,0.0,0.0,0.0,0.0,0.0,100000.0
+2025-01-02 16:00:00-05:00,100000.0,100000.0,0.0,0.0,0.0,False,margin,0.0,0.0,0.0,0,0,,,[],0.0,0.0,0.0,0.0,0.0,0.0,0.0,100000.0
+2025-01-03 08:30:00-05:00,100000.0,100000.0,0.0,0.0,0.0,False,margin,0.0,0.0,0.0,0,0,,,[],0.0,0.0,0.0,0.0,0.0,0.0,0.0,100000.0
+2025-01-03 09:30:00-05:00,100000.0,100000.0,0.0,0.0,0.0,False,margin,0.0,0.0,0.0,0,0,,,[],0.0,0.0,0.0,0.0,0.0,0.0,0.0,100000.0

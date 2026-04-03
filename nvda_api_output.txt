@@ -3,44 +3,45 @@
   "period": "Weekly",
   "stock_ticker": "NVDA",
   "overall_market_sentiment": "Risk-Off",
-  "qqq_assessment": "QQQ周线近8周下跌7.7%，虽EMA金叉多头结构但短期调整压力大，对NVDA方向性影响为负面拖累。",
-  "sector_assessment": "XLK相对QQQ超额收益-0.22%，科技板块整体落后，板块轮动不利。",
-  "macro_rate_environment": "10Y收益率上升至4.44%，趋势向上，Fed偏鹰政策压制成长股估值，宏观环境不利。",
+  "qqq_assessment": "QQQ处于周线EMA金叉（多头结构），但近8周趋势向下（-2.8%），显示高位调整压力。指数层面的回调对高Beta的NVDA形成拖累，方向性影响偏空。",
+  "sector_assessment": "科技板块（XLK）近期跑输QQQ，显示板块层面存在轮动压力或资金流出，对NVDA构成利空。",
+  "macro_rate_environment": "10年期国债收益率持续上升（近8周+6.5%至4.319%），美联储偏鹰派立场对高估值成长股的估值形成压制，宏观环境不利。",
   "earnings_risk_flag": false,
-  "earnings_days_away": 51,
+  "earnings_days_away": 48,
   "asset_analysis": [
     {
       "asset": "NVDA",
       "regime": "Consolidation",
       "action": "no_trade",
       "bias_score": 0.40,
-      "entry_zone": "160.69 – 174.35",
+      "entry_zone": "168.94 – 182.56",
       "profit_target": null,
       "stop_loss": null,
       "risk_reward_ratio": null,
-      "invalidation_condition": "周线收盘站上EMA-20 (179.82) 且 ADX 回升至 >20，同时OBV转为上升确认资金回流。",
+      "invalidation_condition": "价格有效突破并站稳周线EMA20（~179.43）上方，且周线MACD柱状线重新拐头向上，伴随成交量放大。或价格跌破周线EMA50（~169.54）且周线ADX突破20确认下跌趋势。",
       "estimated_holding_weeks": null,
+      "position_size_pct": 0.0,
       "price_action_analysis": {
-        "trend_structure": "周线EMA-20(179.82) > EMA-50(169.32) > EMA-200(130.4)，但价格低于EMA-20和EMA-50，仅高于EMA-200；月线EMA-20(151.73)低于现价，月线MACD正值但缩量。",
-        "momentum_signals": "周线MACD(0.69)正值但接近零轴，多头动能衰竭；RSI-14(42.18)中性偏弱，RSI-7(30.49)接近超卖；Stochastic %K(1.7)极低，短期超卖但无反转确认。",
-        "volatility_context": "周线ATR=13.66，布林带%B=-0.063（跌破下轨），带宽扩张14.43%显示波动加大，但ADX(14.4)指示趋势弱。",
-        "volume_obv": "OBV近6周下降，与价格下跌同步，量价无背离但显示资金流出。",
-        "relative_strength_vs_qqq": "近20周跑输QQQ 3.61%，个股相对弱势持续。"
+        "trend_structure": "长期（月线）趋势向上（价格>EMA20，MACD>0）。中期（周线）结构复杂：EMA50>EMA200维持金叉，但价格低于EMA20，EMA20开始走平，显示短期上行受阻，陷入高位盘整。",
+        "momentum_signals": "周线MACD（0.36）虽为正值但持续快速收敛至零轴，多头动能大幅衰减。RSI-14（48.35）处于中性区间无超买超卖信号。ADX（14.0）低于20，确认市场缺乏强趋势，处于震荡市。",
+        "volatility_context": "周线ATR为13.62，布林带%B（0.273）处于中轨附近，带宽扩张显示波动性可能加大，但当前价格在区间中部运行。",
+        "volume_obv": "OBV近6周趋势上升，显示下跌中仍有资金承接或机构积累，此为积极信号，与价格小幅背离。",
+        "relative_strength_vs_qqq": "近20周跑输QQQ（-3.93%），显示出相对弱势，未展现其作为龙头应有的领涨性。"
       },
       "structured_analysis": {
-        "market_hierarchy_alignment": "L1宏观(收益率上升利空)、L2指数(QQQ短期下跌)、L3板块(XLK落后)、L4个股(跑输QQQ)均利空，仅L5技术面长期趋势向上，存在3层冲突。",
-        "earnings_cycle_phase": "财报后中期阶段，距下次财报51天，处于中等风险窗口。",
-        "sector_rotation_signal": "科技板块整体落后，对NVDA构成板块层面压力。",
-        "regime_justification": "ADX(14.4)<20且价格在周线EMA-20与EMA-50下方震荡，定义为Consolidation制度；五层市场层级多数冲突，缺乏明确趋势动能。"
+        "market_hierarchy_alignment": "存在两层冲突：L1宏观（收益率上升，利空）与L2指数（QQQ多头结构，中性偏多）冲突；L3板块（XLK落后）和L4个股（NVDA落后）均发出利空信号，与技术面L5（盘整）不一致。整体未形成共振。",
+        "earnings_cycle_phase": "处于财报季中期，距下次财报（2026-05-21）约48天，有充足时间让趋势发展，但需关注财报前窗口的风险规避效应。",
+        "sector_rotation_signal": "XLK跑输QQQ，科技板块整体承压，对NVDA不利。",
+        "regime_justification": "核心依据是周线ADX（14.0）< 20，价格在EMA20与EMA50之间震荡，MACD动能衰竭，符合“Consolidation”（盘整）制度的定义。"
       },
       "intelligence_analysis": {
-        "earnings_estimate_trend": "全年EPS预估增速73.9%，连续4季超预期显示盈利质量高，但季度营收环比增速减速-2.6pp，需关注增长持续性。",
-        "analyst_consensus": "95%看多，平均目标价$268.22（上行空间60.1%），提供长期信心但短期情绪低迷。",
-        "valuation_context": "远期P/E 20.2处于合理区间，但营收增速71.1%极高，估值未明显泡沫；季度营收减速需警惕。",
-        "macro_catalyst": "AI资本开支超级周期是否持续是核心宏观逻辑，当前高利率环境压制成长股估值。",
-        "competitive_intelligence": "Blackwell出货节奏、竞争对手AMD MI300X份额变化、对华出口管制风险以及客户自研芯片渗透率是中长期关键变量。"
+        "earnings_estimate_trend": "EPS预估维持高位，全年增速73.9%，但未提供近期修正方向。连续4季超预期显示盈利质量高，对bias_score有正向支撑。",
+        "analyst_consensus": "极度看多（95%买入评级），平均目标价$268.22，隐含+52.6%上行空间，构成强大的基本面锚定和下行支撑。",
+        "valuation_context": "远期P/E 21.19相对于73.9%的EPS增速而言处于合理甚至偏低区间。但季度营收增速环比放缓（-2.6pp）是需警惕的信号，可能影响市场对持续高增长的信心。",
+        "macro_catalyst": "AI资本开支超级周期的可持续性是核心驱动。需密切关注主要云厂商（微软、谷歌等）的资本支出指引是否维持强劲。",
+        "competitive_intelligence": "Blackwell GPU的出货节奏与客户订单是关键；需跟踪AMD MI300X等竞争产品的市场份额变化；对华出口管制仍是尾部风险。长期AI需求叙事依然完整，但短期存在消化估值和观察需求持续性的压力。"
       },
-      "justification": "五层市场分析中四层（宏观、指数、板块、个股）均发出利空信号，仅长期技术趋势向上但短期调整压力显著。ADX<20指示弱趋势震荡，价格跌破周线EMA-20和EMA-50并跑输QQQ，OBV下降显示资金流出。基本面虽盈利高增长且分析师极度看多，但季度营收减速、高利率环境及板块轮动不利构成压制。bias_score经规则计算后仅0.40（因ADX上限0.45、多层级冲突、营收减速扣分、VIX恐慌减分等），低于0.50门槛，故中长线暂不宜开仓。建议等待周线级别企稳信号（如ADX回升、价格重新站上EMA-50）或财报前再评估。"
+      "justification": "综合三维分析：1）技术面：长期牛市结构完好，但中短期陷入无趋势盘整（ADX<20），价格受制于周线EMA20，动能（MACD）衰竭，需等待方向选择。2）结构化：宏观（利率上升）与微观（板块、个股跑输）存在冲突，市场情绪（VIX>25）恐慌，五层市场未形成做多共振。3）情报面：基本面极其强劲（分析师高度看好、盈利超预期、估值合理），是重要的长期支撑，但短期面临营收增速环比放缓的质疑。当前价格处于关键支撑（EMA50）与阻力（EMA20）之间，虽然长期看好，但中短期缺乏明确的入场触发信号和风险回报比优势（bias_score因多层级冲突及盘整制度被限制在0.50以下）。遵循规则，建议暂不交易，等待更清晰的技术突破（如上破EMA20并放量）或更好的风险回报位置（如接近EMA50支撑）再行评估。"
     }
   ]
 }

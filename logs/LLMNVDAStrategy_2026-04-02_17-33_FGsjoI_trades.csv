@@ -1,0 +1,11 @@
+time,side,status,filled_quantity,symbol,asset.asset_type,asset.right,asset.strike,asset.expiration,price,type,asset.multiplier,trade_cost,trade_slippage,event_kind,event_id,cash_event_type,cash_event_amount,cash_event_currency,cash_event_description,cash_event_direction,cash_event_reason,is_external_cash_flow,cash_event_raw_type,cash_event_raw_subtype,cash_event_broker_name,cash_event_broker_event_id
+2025-02-18 09:30:00-05:00,buy,new,,NVDA,stock,,,,,market,1,,0.0,trade,,,,,,,,,,,,
+2025-02-18 09:30:00-05:00,buy,fill,183.0,NVDA,stock,,,,141.27000427246094,market,1,25.852410781860353,0.0,trade,,,,,,,,,,,,
+2025-02-25 08:30:00-05:00,sell_to_close,canceled,,NVDA,stock,,,,,limit,1,,0.0,trade,,,,,,,,,,,,
+2025-02-25 08:30:00-05:00,sell_to_close,fill,183.0,NVDA,stock,,,,129.97999572753906,stop,1,23.78633921813965,0.0,trade,,,,,,,,,,,,
+2025-05-21 09:30:00-04:00,buy,new,,NVDA,stock,,,,,market,1,,0.0,trade,,,,,,,,,,,,
+2025-05-21 09:30:00-04:00,buy,fill,364.0,NVDA,stock,,,,133.05999755859375,market,1,48.433839111328126,0.0,trade,,,,,,,,,,,,
+2025-06-25 08:30:00-04:00,sell_to_close,canceled,,NVDA,stock,,,,,stop,1,,0.0,trade,,,,,,,,,,,,
+2025-06-25 08:30:00-04:00,sell_to_close,fill,364.0,NVDA,stock,,,,150.86,limit,1,54.91304,0.0,trade,,,,,,,,,,,,
+2025-06-27 09:30:00-04:00,buy,new,,NVDA,stock,,,,,market,1,,0.0,trade,,,,,,,,,,,,
+2025-06-27 09:30:00-04:00,buy,fill,133.0,NVDA,stock,,,,156.0399932861328,market,1,20.753319107055663,0.0,trade,,,,,,,,,,,,
