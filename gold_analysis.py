@@ -609,12 +609,12 @@ def build_prompt(daily: pd.DataFrame, weekly: pd.DataFrame, monthly: pd.DataFram
 
     long_entry_lo  = round(current_price - 0.3 * atr14_weekly, 1)
     long_entry_hi  = round(current_price + 0.3 * atr14_weekly, 1)
-    long_stop      = round(current_price - 1.5 * atr14_weekly, 1)
-    long_target    = round(current_price + 3.0 * atr14_weekly, 1)
+    long_stop      = round(current_price - 2.0 * atr14_weekly, 1)   # 1.5→2.0×ATR 中长线需要更宽止损
+    long_target    = round(current_price + 4.0 * atr14_weekly, 1)   # 3.0→4.0×ATR 保持 RR=2.0
     short_entry_lo = round(current_price - 0.3 * atr14_weekly, 1)
     short_entry_hi = round(current_price + 0.3 * atr14_weekly, 1)
-    short_stop     = round(current_price + 1.5 * atr14_weekly, 1)
-    short_target   = round(current_price - 3.0 * atr14_weekly, 1)
+    short_stop     = round(current_price + 2.0 * atr14_weekly, 1)
+    short_target   = round(current_price - 4.0 * atr14_weekly, 1)
 
     # ── 性能反馈区块 ──
     perf_section = ""
@@ -752,10 +752,10 @@ BB %B:         [{series_bb_pctb}]
 
 ## 预计算入场锚点（基于周线 ATR-14={atr14_weekly}，中长期定位）
 
-> 周线 ATR-14 代表约1周的平均真实波幅，中长期止损须置于 1.5×周线ATR 之外以避免被周线噪音止损。
+> 周线 ATR-14 代表约1周的平均真实波幅，中长期止损须置于 **2.0×周线ATR** 之外以避免被周线噪音止损。
 > entry_zone 必须在此范围内，否则将被判定为无效信号 (INVALID_RR)。
 
-| 方向 | entry_zone 参考 | stop_loss 参考 (1.5×ATR) | profit_target 参考 (2.0×R) |
+| 方向 | entry_zone 参考 | stop_loss 参考 (2.0×ATR) | profit_target 参考 (4×ATR, RR=2.0) |
 |------|-----------------|--------------------------|----------------------------|
 | 做多 | {long_entry_lo} – {long_entry_hi} | {long_stop} | {long_target} |
 | 做空 | {short_entry_lo} – {short_entry_hi} | {short_stop} | {short_target} |
@@ -816,14 +816,14 @@ BB %B:         [{series_bb_pctb}]
 - entry_zone 必须包含当前价格 ±1×周线ATR-14 范围，不得设置脱离市场的理想价格
 - profit_target 做多时必须高于 entry_zone 上限，做空时必须低于 entry_zone 下限
 - risk_reward_ratio 必须 ≥ 2.0
-- stop_loss 距离 entry 不得小于 1.0×周线ATR-14（中长期需容纳周线波动噪音）
+- stop_loss 距离 entry 不得小于 1.5×周线ATR-14（中长期持仓需容纳至少1周的正常波幅）
 - 当 action = no_trade 时，profit_target / stop_loss / risk_reward_ratio / estimated_holding_weeks 填 null，position_size_pct 填 0.0
 
 **信号质量过滤规则（全部适用）**：
 - 周线 MACD ({macd_w_val}) < 0 时，**禁止**在 Trending 制度下做多；可评估做空
 - 周线 RSI-14 ({rsi14_w_val}) > 75 时，做多 bias_score 自动上限 0.55；RSI-14 < 30 时，做空 bias_score 自动上限 0.55
 - 价格偏离周线 EMA-20 ({current_ema20_w}) 超过 10% 时，bias_score 上限 0.55（无论方向）
-- **Mean-Reverting 制度下，强制输出 no_trade**（历史回测显示该制度胜率接近 0%，禁止入场）
+- **Mean-Reverting 制度下，bias_score 上限 0.45**（该制度胜率低，仅允许极低置信度的反转机会，仓位最高 0.2）
 - Choppy 制度下，bias_score 上限 0.45
 - 当 bias_score < 0.50 时，一律输出 no_trade
 - 多空均衡：价格低于周线 EMA-20 且 MACD 为负时，**必须认真评估做空机会**，不得默认 no_trade

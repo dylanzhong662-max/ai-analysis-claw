@@ -56,7 +56,7 @@ RESPONSES_DIR = Path("backtest_responses")
 SIGNALS_FILE  = OUTPUT_DIR / "signals.csv"
 PERF_FILE     = OUTPUT_DIR / "performance.csv"
 
-EVAL_DAYS    = 20    # 最长持仓天数（中线持仓，给趋势更多时间发展）
+EVAL_DAYS    = 65    # 最长持仓天数（中长线持仓 ~3个月，与策略声明的1-6个月对齐）
 LOOKBACK_DAYS = 180  # 每个回测节点向前取多少天的数据
 
 # System Prompt（来自 analyz_data.markdown）
@@ -297,17 +297,35 @@ def _download_with_retry(ticker, start, end, interval, retries=3) -> pd.DataFram
     return pd.DataFrame()
 
 
+def _drop_incomplete_weekly_bar(weekly_df: pd.DataFrame, ref_date: str) -> pd.DataFrame:
+    """
+    去除最后一根不完整的周线 Bar。
+    若 ref_date 距该周起始不足 4 个日历日，则认为当周尚未收盘，删除最后一根 Bar。
+    """
+    if weekly_df.empty or len(weekly_df) < 2:
+        return weekly_df
+    ref_dt = pd.Timestamp(ref_date)
+    last_bar_start = weekly_df.index[-1]
+    if hasattr(last_bar_start, "normalize"):
+        last_bar_start = last_bar_start.normalize()
+    if (ref_dt - last_bar_start).days < 4:
+        return weekly_df.iloc[:-1]
+    return weekly_df
+
+
 def fetch_data_up_to(date: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     严格截断：只获取 date 当日及之前的历史数据，绝不包含未来数据。
     yfinance 的 end 参数是 exclusive，所以传 date+1。
+    周线数据会去除不完整的当周 Bar，避免半截 OHLC 污染指标计算。
     """
     end_dt    = pd.Timestamp(date)
     end_str   = (end_dt + timedelta(days=1)).strftime("%Y-%m-%d")
     start_str = (end_dt - timedelta(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
 
     daily  = _download_with_retry(TICKER, start_str, end_str, "1d")
-    weekly = _download_with_retry(TICKER, start_str, end_str, "1wk")
+    weekly = _drop_incomplete_weekly_bar(
+        _download_with_retry(TICKER, start_str, end_str, "1wk"), date)
     return daily, weekly
 
 
@@ -561,12 +579,14 @@ def parse_signal(raw: str) -> dict:
 # 交易模拟（单笔）
 # ─────────────────────────────────────────────
 
-def simulate_trade(signal: dict, future_df: pd.DataFrame, entry_date: str) -> dict:
+def simulate_trade(signal: dict, future_df: pd.DataFrame, entry_date: str,
+                   slippage_pct: float = 0.001, commission_pct: float = 0.001) -> dict:
     """
     模拟规则：
-    - 在 entry_date 次日开盘价入场
+    - 在 entry_date 次日开盘价入场（含单边滑点）
     - 逐日检查：触达止盈 → WIN，触达止损 → LOSS
     - 超过 EVAL_DAYS 天 → TIMEOUT，按最后收盘价结算
+    - 双边佣金 + 滑点从 P&L 中扣除
     """
     base = {
         "action":      None,
@@ -600,21 +620,23 @@ def simulate_trade(signal: dict, future_df: pd.DataFrame, entry_date: str) -> di
         base["exit_reason"] = "NO_TRADE"
         return base
 
-    # ── GOLD: Mean-Reverting 制度禁止入场（回测数据显示 0% 胜率）──
-    if regime == "Mean-Reverting":
+    # ── GOLD: Mean-Reverting 制度限制入场（bias_score > 0.45 时禁止，允许低置信度反转交易）──
+    if regime == "Mean-Reverting" and float(bias_score) > 0.45:
         base["exit_reason"] = "REGIME_FILTERED"
         base["action"]      = "no_trade"
         return base
 
     # ── 仓位计算 ─────────────────────────────────────────────────
+    # regime 系数：与 tech_backtest_engine 对齐，统一仓位管理逻辑
+    _regime_mult = {"Trending": 1.0, "Mean-Reverting": 0.4, "Choppy": 0.3}.get(str(regime), 0.8)
     pos_size_llm = gold_signal.get("position_size_pct")
     if pos_size_llm is not None:
         try:
             pos_size = round(min(1.0, max(0.0, float(pos_size_llm))), 2)
         except (ValueError, TypeError):
-            pos_size = round(min(1.0, max(0.1, (float(bias_score) - 0.5) * 2)), 2)
+            pos_size = round(min(1.0, max(0.1, (float(bias_score) - 0.5) * 2 * _regime_mult)), 2)
     else:
-        pos_size = round(min(1.0, max(0.1, (float(bias_score) - 0.5) * 2)), 2)
+        pos_size = round(min(1.0, max(0.1, (float(bias_score) - 0.5) * 2 * _regime_mult)), 2)
     base["position_size"] = pos_size
 
     if profit_target is None or stop_loss is None:
@@ -624,9 +646,10 @@ def simulate_trade(signal: dict, future_df: pd.DataFrame, entry_date: str) -> di
     profit_target = float(profit_target)
     stop_loss     = float(stop_loss)
 
-    # 次日开盘入场
-    entry_price = float(future_df.iloc[0]["Open"].squeeze())
-    base["entry_price"] = entry_price
+    # 次日开盘入场（做多买 ask，做空卖 bid）
+    raw_open = float(future_df.iloc[0]["Open"].squeeze())
+    entry_price = raw_open * (1 + slippage_pct) if action == "long" else raw_open * (1 - slippage_pct)
+    base["entry_price"] = round(entry_price, 4)
 
     # 验证实际入场价的 R:R（防止因缺口导致止盈目标比入场价还近）
     if action == "long":
@@ -636,7 +659,7 @@ def simulate_trade(signal: dict, future_df: pd.DataFrame, entry_date: str) -> di
         risk   = stop_loss - entry_price
         reward = entry_price - profit_target
 
-    if risk <= 0 or reward <= 0 or (reward / risk) < 1.5:
+    if risk <= 0 or reward <= 0 or (reward / risk) < 2.0:
         base["exit_reason"] = "INVALID_RR"
         return base
 
@@ -669,14 +692,21 @@ def simulate_trade(signal: dict, future_df: pd.DataFrame, entry_date: str) -> di
         last_close = float(future_df.iloc[-1]["Close"].squeeze())
         base.update(exit_price=last_close, exit_reason="TIMEOUT", days_held=len(future_df))
 
-    # 计算 P&L
+    # 计算 P&L（含出场滑点 + 双边佣金）
     if base["exit_price"] is not None:
+        raw_exit = base["exit_price"]
         if action == "long":
-            pnl = (base["exit_price"] - entry_price) / entry_price * 100
+            effective_exit = raw_exit * (1 - slippage_pct)
+            pnl = (effective_exit - entry_price) / entry_price * 100
         else:
-            pnl = (entry_price - base["exit_price"]) / entry_price * 100
+            effective_exit = raw_exit * (1 + slippage_pct)
+            pnl = (entry_price - effective_exit) / entry_price * 100
+        # 扣除双边佣金（入场 + 出场各一次）
+        pnl -= (commission_pct * 2 * 100)
+        base["exit_price"]    = round(effective_exit, 4)
         base["pnl_pct"]       = round(pnl, 4)
-        base["win"]           = pnl > 0
+        # TIMEOUT 出场不计入胜负（未完成持仓），仅 STOP_LOSS / TAKE_PROFIT 才算"已确认交易"
+        base["win"]           = (pnl > 0) if base.get("exit_reason") in ("STOP_LOSS", "TAKE_PROFIT") else None
         base["portfolio_pnl"] = round(pnl * base.get("position_size", 1.0), 4)
 
     return base
@@ -694,45 +724,56 @@ def compute_performance(records: list[dict]) -> dict:
     if traded.empty:
         return {"error": "无有效交易信号"}
 
-    wins   = traded[traded["win"] == True]
-    losses = traded[traded["win"] == False]
+    # 仅 STOP_LOSS / TAKE_PROFIT 为"已确认交易"，计入胜率
+    # TIMEOUT 出场为"未完成持仓"，计入 P&L 但不影响胜率分母
+    completed    = traded[traded["exit_reason"].isin(["STOP_LOSS", "TAKE_PROFIT"])]
+    timeout_cnt  = int((traded["exit_reason"] == "TIMEOUT").sum())
+    wins         = completed[completed["win"] == True]
+    losses       = completed[completed["win"] == False]
 
-    win_rate     = len(wins) / len(traded) * 100
-    avg_pnl      = traded["pnl_pct"].mean()
+    win_rate     = len(wins) / len(completed) * 100 if len(completed) > 0 else 0.0
+    avg_pnl      = traded["pnl_pct"].mean()                    # 含 TIMEOUT
     avg_win      = wins["pnl_pct"].mean()   if not wins.empty   else 0.0
     avg_loss     = losses["pnl_pct"].mean() if not losses.empty else 0.0
     total_profit = wins["pnl_pct"].sum()
     total_loss   = abs(losses["pnl_pct"].sum())
     profit_factor = total_profit / total_loss if total_loss > 0 else float("inf")
 
-    # 最大回撤（基于累计 P&L 曲线）
-    cum = traded["pnl_pct"].cumsum()
-    max_dd = (cum - cum.cummax()).min()
+    # 最大回撤：基于持仓加权复利资金曲线
+    _equity_g, _equity_vals_g = 1.0, [1.0]
+    for _, _r in traded.iterrows():
+        _sz = float(_r.get("position_size") or 1.0) if "position_size" in traded.columns else 1.0
+        _equity_g *= (1 + _r["pnl_pct"] / 100 * _sz)
+        _equity_vals_g.append(_equity_g)
+    _eq_s_g = pd.Series(_equity_vals_g)
+    max_dd  = float((((_eq_s_g - _eq_s_g.cummax()) / _eq_s_g.cummax()).min()) * 100)
 
-    # 按月统计胜率
-    if "date" in df.columns:
-        traded_copy = traded.copy()
-        traded_copy["month"] = pd.to_datetime(traded_copy["date"]).dt.to_period("M")
-        monthly = traded_copy.groupby("month")["win"].mean() * 100
+    # 按月统计胜率（仅 completed trades）
+    if "date" in df.columns and not completed.empty:
+        comp_copy = completed.copy()
+        comp_copy["month"] = pd.to_datetime(comp_copy["date"]).dt.to_period("M")
+        monthly = comp_copy.groupby("month")["win"].mean() * 100
         monthly_str = "  |  ".join(f"{m}: {v:.0f}%" for m, v in monthly.items())
     else:
         monthly_str = "N/A"
 
     return {
-        "total_signals":   len(df),
-        "traded":          len(traded),
-        "no_trade":        no_trade_cnt,
-        "no_trade_rate":   f"{no_trade_cnt / len(df) * 100:.1f}%",
-        "win_count":       len(wins),
-        "loss_count":      len(losses),
-        "win_rate":        f"{win_rate:.1f}%",
-        "avg_pnl_pct":     f"{avg_pnl:.2f}%",
-        "avg_win_pct":     f"{avg_win:.2f}%",
-        "avg_loss_pct":    f"{avg_loss:.2f}%",
-        "profit_factor":   f"{profit_factor:.2f}",
-        "max_drawdown":    f"{max_dd:.2f}%",
-        "total_return":    f"{traded['pnl_pct'].sum():.2f}%",
-        "monthly_winrate": monthly_str,
+        "total_signals":    len(df),
+        "traded":           len(traded),
+        "completed_trades": len(completed),
+        "timeout_count":    timeout_cnt,
+        "no_trade":         no_trade_cnt,
+        "no_trade_rate":    f"{no_trade_cnt / len(df) * 100:.1f}%",
+        "win_count":        len(wins),
+        "loss_count":       len(losses),
+        "win_rate":         f"{win_rate:.1f}%  (基于 {len(completed)} 笔确认交易，不含 {timeout_cnt} 笔超时)",
+        "avg_pnl_pct":      f"{avg_pnl:.2f}%",
+        "avg_win_pct":      f"{avg_win:.2f}%",
+        "avg_loss_pct":     f"{avg_loss:.2f}%",
+        "profit_factor":    f"{profit_factor:.2f}",
+        "max_drawdown":     f"{max_dd:.2f}%",
+        "total_return":     f"{(_equity_g - 1) * 100:.2f}%",
+        "monthly_winrate":  monthly_str,
     }
 
 

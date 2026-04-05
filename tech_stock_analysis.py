@@ -904,12 +904,12 @@ def build_prompt_equity(
     atr = w_atr14 or 1.0
     long_entry_lo  = round(current_price - 0.5 * atr, 2)
     long_entry_hi  = round(current_price + 0.5 * atr, 2)
-    long_stop      = round(current_price - 2.0 * atr, 2)
-    long_target    = round(current_price + 4.0 * atr, 2)
+    long_stop      = round(current_price - 2.5 * atr, 2)   # 2.0→2.5×ATR 中长线需要更宽止损
+    long_target    = round(current_price + 5.0 * atr, 2)   # 4.0→5.0×ATR 保持 RR=2.0
     short_entry_lo = round(current_price - 0.5 * atr, 2)
     short_entry_hi = round(current_price + 0.5 * atr, 2)
-    short_stop     = round(current_price + 2.0 * atr, 2)
-    short_target   = round(current_price - 4.0 * atr, 2)
+    short_stop     = round(current_price + 2.5 * atr, 2)
+    short_target   = round(current_price - 5.0 * atr, 2)
 
     # 情报分析区块
     intel_section = format_intelligence_section(intel, current_price)
@@ -1206,7 +1206,7 @@ DXY: {_v(ms.get('dxy_last'))}  |  趋势: {ms.get('dxy_trend', 'N/A')}
 > 中长线持仓止损和目标均基于**周线 ATR**，给价格充分的波动空间（目标持仓 4–26 周）。
 > entry_zone 必须在此范围内；可在 ±0.5×wATR 范围内根据支撑/阻力微调。
 
-| 方向 | entry_zone | stop_loss (2×wATR) | profit_target (4×wATR, RR=2.0) | 预计持仓 |
+| 方向 | entry_zone | stop_loss (2.5×wATR) | profit_target (5×wATR, RR=2.0) | 预计持仓 |
 |------|-----------|--------------------|---------------------------------|---------|
 | 做多 | {long_entry_lo} – {long_entry_hi} | {long_stop} | {long_target} | 4–26 周 |
 | 做空 | {short_entry_lo} – {short_entry_hi} | {short_stop} | {short_target} | 4–26 周 |
@@ -1288,18 +1288,24 @@ DXY: {_v(ms.get('dxy_last'))}  |  趋势: {ms.get('dxy_trend', 'N/A')}
 **硬性约束（违反任意一条 → 强制输出 no_trade）**：
 - `earnings_days_away ≤ 5` → 财报二元风险，强制 no_trade
 - QQQ 处于死叉（EMA50 < EMA200）→ 禁止做多
-- 做空需同时满足：QQQ EMA50 < EMA200 **且** VIX > 20 **且** 股价低于周线 EMA-200；三者缺一禁止做空
+- **个股周线死叉**（{ticker} 周线 EMA50 < EMA200）→ 同样禁止做多，bias_score 强制 ≤ 0.40；下跌趋势中买入"支撑"是连续止损的根源
+- 做空需同时满足：QQQ EMA50 < EMA200 **且** VIX > 25 **且** 股价低于周线 EMA-200；三者缺一禁止做空
 - `risk_reward_ratio < 2.0` → 盈亏比不足
-- 止损距离 entry < 1.5×周ATR（{_v(w_atr14)}）= {round(1.5*atr, 2) if w_atr14 else 'N/A'} → 止损太紧（需给中长线足够呼吸空间）
+- 止损距离 entry < 2.0×周ATR（{_v(w_atr14)}）= {round(2.0*atr, 2) if w_atr14 else 'N/A'} → 止损太紧（中长线持仓须给价格足够波动空间）
 
 **信号质量过滤规则（全部适用）**：
+
+*Trending-Up 动能延续规则（正向信号，不过度保守）*
+- 个股处于 Trending-Up（价格 > EMA50 > EMA200）且 QQQ EMA50 > EMA200 → bias_score 0.55–0.75 是合理范围，不要因为"RSI偏高"或"涨幅已大"而过度压低 bias；牛市中保守偏低的 bias 等于放弃 Alpha
+- Trending-Up 回调到 EMA20 附近（价格距 EMA20 ≤ 2%）→ 高概率买点，bias_score 可提高 0.05
+- Trending-Recovery（回调 ≥20% 后反弹 ≥15% 且 MACD 改善）→ bias_score 0.55–0.65，这是科技股最高 Alpha 入场时机
 
 *技术面规则*
 - L1–L5 五层全部对齐同方向 → bias_score 允许 > 0.65
 - 有 1 层冲突 → bias_score 上限 0.60
 - 有 2 层及以上冲突 → bias_score 上限 0.50（建议 no_trade）
 - 周线 MACD ({_v(w_macd)}) < 0 且 Trending 制度 → 禁止做多，评估做空
-- 周线 RSI-7 ({_v(w_rsi7)}) > 75 → 做多 bias_score 上限 0.55
+- 周线 RSI-7 ({_v(w_rsi7)}) > 75 → **仅 Mean-Reverting/Consolidation 制度**时做多 bias_score 上限 0.55；Trending-Up 制度下 RSI>75 为动能延续信号，不强制限制 bias_score，但须降低仓位（position_size_pct ≤ 0.3 以防追高）
 - 价格偏离周线 EMA-20 ({_v(w_ema20)}) 超过 5% → bias_score 上限 0.55
 - ADX ({_v(w_adx)}) < 20 → 制度降级为 Consolidation，bias_score 上限 0.45
 - OBV 与价格方向背离 → bias_score 降低 0.10

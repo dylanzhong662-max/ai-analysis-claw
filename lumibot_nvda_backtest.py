@@ -69,8 +69,8 @@ MAX_POSITION_SIZE = 0.50     # 仓位上限（ATR 定仓的兜底 cap）
 RISK_PER_TRADE    = 0.02     # 每笔最大亏损占组合比例
 MIN_ATR_MULT      = 0.8      # 止损距离 ≥ 0.8×ATR-14（原 1.0，略放宽）
 MIN_RR            = 1.8      # R:R 最低门槛（原 2.0，略放宽）
-HIGH_CONVICTION_BIAS = 0.70  # ≥ 此阈值跳过 Claude 确认（快速通道）
-CONFIRM_MIN_BIAS  = 0.40     # Claude 确认最低 bias（原 0.50，放宽）
+HIGH_CONVICTION_BIAS = 0.80  # ≥ 此阈值跳过 Claude 确认（快速通道，提高门槛让更多走确认）
+CONFIRM_MIN_BIAS  = 0.40     # Claude 确认最低 bias
 
 BACKTEST_START = datetime(2025, 1, 1)
 BACKTEST_END   = datetime(2025, 12, 31)
@@ -368,6 +368,13 @@ class LLMNVDAStrategy(Strategy):
 
         if p_action == "short":
             self.log_message(f"[SKIP SHORT_FILTERED]  {ref_date}")
+            return
+
+        # Trending-Recovery 制度允许入场（不降级为 no_trade）
+        p_regime = primary_sig.get("regime", "")
+        allowed_regimes = {"Trending", "Trending-Recovery", "Mean-Reverting", "Consolidation"}
+        if p_regime not in allowed_regimes and "Trending" not in p_regime:
+            self.log_message(f"[SKIP BAD_REGIME] regime={p_regime}  {ref_date}")
             return
 
         # ── I. 实时价格 + R:R 验证 ──────────────────────────────────
