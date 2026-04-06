@@ -165,6 +165,95 @@ def fmt_series(series: pd.Series, decimals: int = 2, n: int = 12) -> str:
     return ", ".join(str(v) for v in values)
 
 
+def describe_macd(ind: dict, tf_label: str = "周线") -> str:
+    """将 MACD 指标转为文本形态描述，替代原始数字序列"""
+    macd = ind['macd'].dropna()
+    sig  = ind['macd_sig'].dropna()
+    hist = ind['macd_hist'].dropna()
+    if len(macd) < 2 or len(sig) < 2:
+        return f"{tf_label}MACD: N/A"
+    m, s   = float(macd.iloc[-1]), float(sig.iloc[-1])
+    m_p, s_p = float(macd.iloc[-2]), float(sig.iloc[-2])
+    if   m > s and m_p <= s_p: cross = "刚形成金叉"
+    elif m < s and m_p >= s_p: cross = "刚形成死叉"
+    elif m > s:                cross = "金叉持续"
+    else:                      cross = "死叉持续"
+    h_vals = hist.iloc[-3:].tolist() if len(hist) >= 3 else []
+    if len(h_vals) == 3:
+        if   h_vals[2] > h_vals[1] > h_vals[0]: hist_t = "柱状图连扩（动能增强）"
+        elif h_vals[2] < h_vals[1] < h_vals[0]: hist_t = "柱状图连缩（动能减弱）"
+        elif h_vals[2] > 0:                      hist_t = f"柱状图为正({h_vals[2]:.2f})"
+        else:                                    hist_t = f"柱状图为负({h_vals[2]:.2f})"
+    else:
+        hist_t = ""
+    return f"{tf_label}MACD {cross}（MACD={m:.2f}, Signal={s:.2f}）；{hist_t}"
+
+
+def describe_rsi(ind: dict, tf_label: str = "周线") -> str:
+    """将 RSI 指标转为文本形态描述"""
+    rsi14 = ind['rsi14'].dropna()
+    rsi7  = ind['rsi7'].dropna()
+    if rsi14.empty:
+        return f"{tf_label}RSI: N/A"
+    r = float(rsi14.iloc[-1])
+    if   r > 70: level = f"超买区({r:.0f})"
+    elif r < 30: level = f"超卖区({r:.0f})"
+    elif r > 55: level = f"偏强({r:.0f})"
+    elif r < 45: level = f"偏弱({r:.0f})"
+    else:        level = f"中性({r:.0f})"
+    trend = ""
+    if len(rsi14) >= 4:
+        r_p = float(rsi14.iloc[-4])
+        if   r > 50 and r_p < 50: trend = "，穿越50中轴↑"
+        elif r < 50 and r_p > 50: trend = "，跌破50中轴↓"
+        elif r > r_p + 8:         trend = "，快速回升"
+        elif r < r_p - 8:         trend = "，快速下落"
+    r7_note = ""
+    if not rsi7.empty:
+        r7 = float(rsi7.iloc[-1])
+        if   r7 > 80: r7_note = f"；RSI-7={r7:.0f} 极度超买（追高风险高）"
+        elif r7 < 20: r7_note = f"；RSI-7={r7:.0f} 极度超卖（反弹动能积累）"
+    return f"{tf_label}RSI-14={level}{trend}{r7_note}"
+
+
+def describe_bb(ind: dict, tf_label: str = "周线") -> str:
+    """将布林带指标转为文本形态描述"""
+    pctb_s = ind['bb_pct_b'].dropna()
+    bw_s   = ind['bb_bw'].dropna()
+    if pctb_s.empty:
+        return f"{tf_label}BB: N/A"
+    pctb = float(pctb_s.iloc[-1])
+    if   pctb > 1.0: pos = "突破上轨（强势，小心回撤）"
+    elif pctb > 0.7: pos = "靠近上轨（偏强）"
+    elif pctb > 0.4: pos = "中轨上方（中性偏多）"
+    elif pctb > 0.1: pos = "中轨下方（中性偏空）"
+    elif pctb >= 0:  pos = "靠近下轨（偏弱）"
+    else:            pos = "跌破下轨（超卖反弹关注区）"
+    bw_note = ""
+    if len(bw_s) >= 26:
+        history = bw_s.tail(52).tolist() if len(bw_s) >= 52 else bw_s.tolist()
+        curr_bw = float(bw_s.iloc[-1])
+        pct = sum(1 for x in history if x <= curr_bw) / len(history) * 100
+        if   pct < 20: bw_note = f"；带宽处于历史{pct:.0f}%分位（高度收缩，突破蓄势）"
+        elif pct > 80: bw_note = f"；带宽处于历史{pct:.0f}%分位（高度扩张，趋势强劲）"
+    return f"{tf_label}BB %B={pctb:.2f}，{pos}{bw_note}"
+
+
+def describe_price_vs_ema(close: pd.Series, ind: dict, tf_label: str = "周线") -> str:
+    """价格相对各均线位置的文本描述"""
+    if close.empty:
+        return f"{tf_label}价格结构: N/A"
+    price = float(close.iloc[-1])
+    parts = []
+    for period, key in [(20, 'ema20'), (50, 'ema50'), (200, 'ema200')]:
+        ema_s = ind[key].dropna()
+        if not ema_s.empty:
+            v   = float(ema_s.iloc[-1])
+            pct = (price - v) / v * 100
+            parts.append(f"EMA{period}({'↑' if price > v else '↓'}{abs(pct):.1f}%)")
+    return (f"{tf_label}价格={price:.2f}；" + "，".join(parts)) if parts else f"{tf_label}N/A"
+
+
 # ─────────────────────────────────────────────
 # 数据获取
 # ─────────────────────────────────────────────
@@ -886,19 +975,13 @@ def build_prompt_equity(
     pct_from_high = round((current_price - high_52w) / high_52w * 100, 1)
     pct_from_low  = round((current_price - low_52w)  / low_52w  * 100, 1)
 
-    # 序列数据
-    n_w, n_m = 12, 12
-    weekly_closes  = fmt_series(close_w, 2, n_w)
-    weekly_macd    = fmt_series(w_ind['macd'], 2, n_w)
-    weekly_rsi14   = fmt_series(w_ind['rsi14'], 2, n_w)
-    weekly_ema20   = fmt_series(w_ind['ema20'], 2, n_w)
-    weekly_ema50   = fmt_series(w_ind['ema50'], 2, n_w)
-    weekly_adx     = fmt_series(w_ind['adx'], 1, n_w)
-    weekly_stoch_k = fmt_series(w_ind['stoch_k'], 1, n_w)
-    weekly_bb_pctb = fmt_series(w_ind['bb_pct_b'], 3, n_w)
-    monthly_closes = fmt_series(close_m, 2, n_m)
-    monthly_macd   = fmt_series(m_ind['macd'], 2, n_m)
-    monthly_rsi14  = fmt_series(m_ind['rsi14'], 2, n_m)
+    # ── 形态描述（替代原始数字序列，LLM 对文本形态感知力远强于浮点数组）──
+    w_price_desc    = describe_price_vs_ema(close_w, w_ind, "周线")
+    w_macd_desc     = describe_macd(w_ind, "周线")
+    w_rsi_desc      = describe_rsi(w_ind, "周线")
+    w_bb_desc       = describe_bb(w_ind, "周线")
+    m_macd_desc     = describe_macd(m_ind, "月线")
+    m_rsi_desc      = describe_rsi(m_ind, "月线")
 
     # 预计算入场锚点（基于周线 ATR，中长线适用）
     atr = w_atr14 or 1.0
@@ -942,70 +1025,70 @@ def build_prompt_equity(
     # 股票专属行业背景（静态 prompt engineering，给模型提供行业分析框架）
     _INDUSTRY_CONTEXT = {
         "GOOGL": """
-### 行业特有分析维度（GOOGL / Alphabet）
+### 行业特有分析维度（GOOGL / Alphabet）— 更新于 2026Q1
 
 请在 `competitive_intelligence` 字段中，额外关注以下 GOOGL 专属因素：
 
-1. **搜索广告 vs AI 替代威胁**：AI Overviews / ChatGPT 搜索对传统搜索广告 CPM 的影响迹象（目前技术面上反映为何种走势？）
-2. **Google Cloud 增速**：云业务是否保持 >25% YoY 增速？是否在抢夺 AWS/Azure 份额？估值重新定价的关键催化剂。
-3. **YouTube 广告**：与 Meta Reels / TikTok 的用户时长竞争态势，是否存在广告主预算流失？
-4. **监管风险**：DOJ 反垄断诉讼（搜索/广告技术）是否有新进展，是否构成中期估值压制？
-5. **Gemini AI 货币化**：AI Studio、Workspace AI 的付费转化节奏，与 OpenAI / MSFT Copilot 的竞争差距。
+1. **AI Overviews 货币化验证**：AI 概览功能上线后搜索广告 CPM 是否出现结构性下滑？Q1 2026 广告收入增速是关键验证节点，市场已将此定价为最大不确定性。
+2. **Gemini 2.0/2.5 vs 竞品**：Gemini Ultra/Flash 与 GPT-4.5、Claude 3.7、Llama 4 的能力对比，是否在开发者 API 使用量上重获份额？
+3. **Google Cloud 增速**：是否维持 >28% YoY？TPU v6（Trillium）在推理侧对外部 GPU 的替代比例，Vertex AI 大客户拓展。
+4. **DOJ 搜索垄断救济执行**：2025 年判决后的强制救济措施（默认搜索协议禁止/分拆预期），是否出现实质性落地影响估值。
+5. **Waymo 商业化**：自动驾驶业务在旧金山/凤凰城的收入规模，是否接近独立融资或分拆节点，构成估值重估催化剂。
 """,
         "META": """
-### 行业特有分析维度（Meta Platforms）
+### 行业特有分析维度（Meta Platforms）— 更新于 2026Q1
 
 请在 `competitive_intelligence` 字段中，额外关注以下 Meta 专属因素：
 
-1. **广告 CPM 趋势**：季度广告 ARPU 是否加速？与 GOOGL/TikTok 的广告预算份额对比。
-2. **Reels 货币化**：短视频 Reels 的广告负载率是否接近 Feed，是否仍是超额增长来源？
-3. **AI 基础设施投入**：CapEx 是否超预期抬升？对 FCF 和估值的影响。
-4. **Reality Labs 亏损**：元宇宙部门亏损是否收窄，或成为持续负担？
-5. **中国广告主依赖**：Temu / Shein 等中国广告主占比，关税政策影响敞口。
+1. **关税冲击下的中国广告主敞口**：Temu/Shein/速卖通等中国广告主贡献约 10% 营收，美中关税升级（2025年加至145%）是否导致这部分预算骤降？Q1 2026 广告收入指引是关键风险点。
+2. **Llama 4 开源 AI 战略**：Llama 4 Scout/Maverick/Behemoth 发布后开发者生态扩张，开源策略是否帮助 Meta AI 助手实现 MAU 增长，间接强化广告平台护城河。
+3. **WhatsApp 商业消息货币化**：B2C 消息服务在印度/巴西/东南亚的 ARPU 提升节奏，是否成长为新的高利润率收入线。
+4. **CapEx 与 FCF 压力**：2025 全年 CapEx 指引 $600-650 亿，AI 数据中心投入是否进一步上调？FCF yield 压缩对估值倍数的影响。
+5. **AI 眼镜 + AR 生态**：Ray-Ban Meta 眼镜销量（据报超百万），Orion AR 原型商业化时间表，是否构成下一个硬件增长故事。
 """,
         "NVDA": """
-### 行业特有分析维度（NVIDIA）
+### 行业特有分析维度（NVIDIA）— 更新于 2026Q1
 
 请在 `competitive_intelligence` 字段中，额外关注以下 NVDA 专属因素：
 
-1. **Blackwell 出货节奏**：新一代 GPU 是否如期量产，数据中心客户订单可见度。
-2. **AI 资本开支超级周期**：微软/谷歌/Meta/亚马逊 CapEx 指引，是否支撑持续需求。
-3. **竞争威胁**：AMD MI300X 市场份额是否扩大？谷歌 TPU、亚马逊 Trainium 自研芯片渗透率。
-4. **出口管制风险**：H20/L20 对华出口限制是否收紧，中国收入占比与替代预案。
-5. **估值锚点**：以 CY26 EPS 为基础的 Forward P/E，当前定价隐含的增速预期是否现实。
+1. **GB200 NVL 部署进展**：超大规模客户（微软/谷歌/Meta/亚马逊）GB200 机架交付节奏，NVLink 互联扩容情况。
+2. **Rubin 架构时间表**：RX100（Rubin）预计 2026 量产，是否已有客户预购和产能规划披露，对 GB200 需求的替代/续接效应。
+3. **自研芯片竞争**：AMD MI350/MI400 份额是否扩大；谷歌 Trillium TPUv6、亚马逊 Trainium3 在推理侧的替代渗透率趋势。
+4. **出口管制动态**：对华/对中东 AI 芯片出口许可（H20/B20 后续政策），中国收入占比及替代预案（东南亚/中东数据中心绕路模式）。
+5. **AI 推理需求结构**：训练算力向推理算力迁移比例，推理需求对 GPU 利用率的持续支撑力度，是否出现训练侧 CapEx 放缓迹象。
 """,
         "MSFT": """
-### 行业特有分析维度（Microsoft）
+### 行业特有分析维度（Microsoft）— 更新于 2026Q1
 
 请在 `competitive_intelligence` 字段中，额外关注以下 MSFT 专属因素：
 
-1. **Azure 增速**：云业务是否保持 >25% YoY？是否在抢占 AWS 份额？AI 相关云需求占比。
-2. **Copilot 货币化**：Microsoft 365 Copilot 的付费席位增速，是否带动 ARPU 提升。
-3. **OpenAI 押注**：与 OpenAI 的合作是否加深，或面临竞争（GPT-5 vs Copilot 定位冲突）。
-4. **Activision 整合**：游戏业务是否产生协同，对营收多元化的贡献。
-5. **企业 IT 预算周期**：大型企业 IT 支出是否重启，对 Office 365 / Azure 续约率的影响。
+1. **Azure AI 增速加速验证**：Azure 是否突破 35% YoY？AI 工作负载（Azure OpenAI Service、Copilot Studio）在 Azure 增速中的贡献比例，是否出现"AI 飞轮"效应（AI 带动云消耗增长）。
+2. **Microsoft 365 Copilot 企业渗透**：付费 Copilot 席位是否超过 1000 万？企业续约率是否验证 ROI，ARPU 提升幅度（每用户 +$30/月）对营收的增量测算。
+3. **OpenAI 关系重构**：GPT-4.5/5 发布后 OpenAI 独立商业化能力增强，与 Azure 绑定协议是否出现松动？Copilot 与 ChatGPT Enterprise 的企业客户竞争。
+4. **GitHub Copilot 企业版**：代码 AI 助手在 Fortune 500 的渗透率，是否已成为开发者标配工具，构成新增长飞轮。
+5. **Activision 游戏整合**：Xbox Game Pass 订阅数与 Activision 内容协同，Call of Duty 等 IP 对游戏收入的实际贡献是否达到收购预期。
 """,
         "AMZN": """
-### 行业特有分析维度（Amazon）
+### 行业特有分析维度（Amazon）— 更新于 2026Q1
 
 请在 `competitive_intelligence` 字段中，额外关注以下 AMZN 专属因素：
 
-1. **AWS 增速**：云业务是否保持 >20% YoY？AI 服务（Bedrock）的增量贡献。
-2. **零售利润率扩张**：电商部门是否持续实现运营杠杆，物流成本压缩进度。
-3. **广告业务**：第三方广告是否维持高增速，逐步成为高利润率收入来源。
-4. **Prime 续费率**：订阅经济黏性，是否有提价空间。
-5. **Anthropic 投资**：AI 模型布局对 AWS 竞争力的加分，与微软/谷歌的 AI 云差距是否收窄。
+1. **AWS AI 基础设施领先验证**：AWS 是否维持 >17% YoY？Amazon Nova 系列模型在 Bedrock 上的调用量，Trainium3/Inferentia 自研芯片是否降低 GPU 采购成本并提升 AI 云利润率。
+2. **关税对零售业务的双向冲击**：美中关税上调对第三方中国卖家（占 GMV 约 30%）的冲击，同时跨境包裹豁免取消是否逼退 Temu/Shein 竞争，形成净正面效应还是负面效应？
+3. **广告业务突破 $60B**：广告已成为第三大业务，CPM 定价能力是否持续强于 GOOGL/META？Sponsored Product 在 AI 推荐场景下的转化率提升。
+4. **Project Kuiper**：低轨卫星互联网计划是否完成关键发射批次，商业服务是否启动，对 Starlink 的竞争时间表。
+5. **Anthropic 深度整合**：Claude 3.7 在 AWS 客户中的企业 AI Agent 采用率，是否帮助 AWS 在 AI 云场景下追回被 Azure OpenAI 抢占的份额。
 """,
         "AAPL": """
-### 行业特有分析维度（Apple）
+### 行业特有分析维度（Apple）— 更新于 2026Q1
 
 请在 `competitive_intelligence` 字段中，额外关注以下 AAPL 专属因素：
 
-1. **iPhone 换机周期**：当前处于超级换机周期启动期还是低谷？AI 功能（Apple Intelligence）是否成为换机催化剂。
-2. **服务业务增速**：App Store、Apple Music、iCloud、Apple Pay 的综合服务收入是否持续加速，是否支撑更高估值倍数。
-3. **印度/新兴市场**：中国市场销量下滑背景下，印度产能转移和销量增长能否形成有效对冲。
-4. **VR/AR 生态**：Vision Pro 的开发者生态和企业采用进展，是否形成新增长引擎。
-5. **监管与税收风险**：欧盟 DMA 法规对 App Store 收入的冲击，以及全球企业税改革对利润率的影响。
+1. **关税最大风险暴露**：约 90% iPhone 仍在中国组装，美中关税145%如正式覆盖电子产品，iPhone 售价需上涨 $200-300 方能维持利润率。印度/越南产能转移（目前约 15%）短期内无法完全对冲，是当前估值最大尾部风险。
+2. **Apple Intelligence 换机催化效果**：iPhone 16 系列搭载 Apple Intelligence，换机周期是否被 AI 功能激活？中国市场 Apple Intelligence 延迟上线（需与百度/腾讯合作）是否造成中国区销量落后。
+3. **服务业务高利润率持续性**：服务收入（App Store、Apple TV+、iCloud+）是否维持 >12% YoY，对整体毛利率（服务毛利 ~75% vs 硬件 ~36%）的支撑是否抵消关税冲击。
+4. **Vision Pro 战略调整**：第一代 Vision Pro 销量远低于预期，是否宣布更低价格段产品（$1500-2000）？头显业务路线图是否仍构成下一代增长故事。
+5. **DOJ / 欧盟 App Store 强制开放**：美国 Epic 判决执行、欧盟 DMA 合规落地，第三方支付渗透对 App Store 高利润率的实质冲击幅度。
 """,
         # ─── 大宗商品 / ETF 专属上下文 ───
         "SLV": """
@@ -1154,22 +1237,17 @@ def build_prompt_equity(
 | MACD (月) | {_v(m_macd)} | {'月线多头动能' if m_macd and m_macd > 0 else '月线空头动能'} |
 | RSI-14 (月) | {_v(m_rsi14)} | {'月线超买，长期注意顶部风险' if m_rsi14 and m_rsi14 > 70 else ('月线超卖，长期关注底部机会' if m_rsi14 and m_rsi14 < 30 else '月线中性')} |
 
-### 1.4 序列数据（从旧到新排列，最后一个值 = 最新）
+### 1.4 动量形态描述（Python 预处理，供判断方向和强度参考）
 
-**周线数据（近12周）**：
-收盘价:     [{weekly_closes}]
-EMA-20:     [{weekly_ema20}]
-EMA-50:     [{weekly_ema50}]
-MACD:       [{weekly_macd}]
-RSI-14:     [{weekly_rsi14}]
-ADX:        [{weekly_adx}]
-Stoch %K:   [{weekly_stoch_k}]
-BB %B:      [{weekly_bb_pctb}]
+**周线形态**：
+- {w_price_desc}
+- {w_macd_desc}
+- {w_rsi_desc}
+- {w_bb_desc}
 
-**月线数据（近12个月）**：
-收盘价:     [{monthly_closes}]
-MACD:       [{monthly_macd}]
-RSI-14:     [{monthly_rsi14}]
+**月线形态（仅背景参考，权重 ≤ ±0.05）**：
+- {m_macd_desc}
+- {m_rsi_desc}
 
 ---
 
@@ -1287,8 +1365,8 @@ DXY: {_v(ms.get('dxy_last'))}  |  趋势: {ms.get('dxy_trend', 'N/A')}
 
 **硬性约束（违反任意一条 → 强制输出 no_trade）**：
 - `earnings_days_away ≤ 5` → 财报二元风险，强制 no_trade
-- QQQ 处于死叉（EMA50 < EMA200）→ 禁止做多
-- **个股周线死叉**（{ticker} 周线 EMA50 < EMA200）→ 同样禁止做多，bias_score 强制 ≤ 0.40；下跌趋势中买入"支撑"是连续止损的根源
+- **个股周线死叉 + 价格低于 EMA200**（EMA50 < EMA200 且 price < EMA200）→ 确认下跌趋势，禁止做多（Python 层已前置拦截，LLM 不会被调用）
+- **个股周线死叉 + 价格高于或等于 EMA200**（EMA50 < EMA200 但 price ≥ EMA200）→ 修复行情（EMA 滞后的"回声"），允许做多但 bias_score ≤ 0.60，制度分类为 **Trending-Recovery**
 - 做空需同时满足：QQQ EMA50 < EMA200 **且** VIX > 25 **且** 股价低于周线 EMA-200；三者缺一禁止做空
 - `risk_reward_ratio < 2.0` → 盈亏比不足
 - 止损距离 entry < 2.0×周ATR（{_v(w_atr14)}）= {round(2.0*atr, 2) if w_atr14 else 'N/A'} → 止损太紧（中长线持仓须给价格足够波动空间）
@@ -1306,10 +1384,11 @@ DXY: {_v(ms.get('dxy_last'))}  |  趋势: {ms.get('dxy_trend', 'N/A')}
 - 有 2 层及以上冲突 → bias_score 上限 0.50（建议 no_trade）
 - 周线 MACD ({_v(w_macd)}) < 0 且 Trending 制度 → 禁止做多，评估做空
 - 周线 RSI-7 ({_v(w_rsi7)}) > 75 → **仅 Mean-Reverting/Consolidation 制度**时做多 bias_score 上限 0.55；Trending-Up 制度下 RSI>75 为动能延续信号，不强制限制 bias_score，但须降低仓位（position_size_pct ≤ 0.3 以防追高）
-- 价格偏离周线 EMA-20 ({_v(w_ema20)}) 超过 5% → bias_score 上限 0.55
+- 价格偏离周线 EMA-20 ({_v(w_ema20)}) 超过 5%，且制度非 Trending-Up → bias_score 上限 0.55（**Trending-Up 制度完全豁免**：牛市中价格持续跑在 EMA-20 上方是动量钝化的正常现象，不是反转信号）
 - ADX ({_v(w_adx)}) < 20 → 制度降级为 Consolidation，bias_score 上限 0.45
 - OBV 与价格方向背离 → bias_score 降低 0.10
 - VIX > 25 → 所有做多 bias_score -0.05；VIX > 35 → 默认 no_trade
+- **QQQ 死叉（EMA50 < EMA200）** → 做多 bias_score 上限 0.55，position_size_pct 上限 0.2（软限制，不禁止做多；个股若强于大盘仍可入场，但须轻仓）
 
 *基本面规则*
 - EPS 预估上调 ≥ 2%（`eps_growth_estimate` 提升）→ 做多 bias_score +0.05
@@ -1319,6 +1398,11 @@ DXY: {_v(ms.get('dxy_last'))}  |  趋势: {ms.get('dxy_trend', 'N/A')}
 - 季度营收减速（`revenue_acceleration` < -2pp）→ 做多 bias_score -0.08
 - 分析师平均目标价上行空间 < 5% → 做多 bias_score 上限 0.55（没有上行催化剂）
 - 分析师平均目标价上行空间 > 20% → 做多 bias_score 可额外 +0.03
+
+*Trending-Up 估值豁免（防止估值洁癖踏空牛市）*
+- 个股处于 Trending-Up（price > EMA50 > EMA200）且 XLK ≥ QQQ → Forward P/E 偏高（>35）、PEG > 2 等估值警告**权重清零**，不影响 bias_score；科技股牛市的超额收益来自估值扩张（Multiple Expansion），大模型不应因为"估值贵"就输出 no_trade
+- 上述豁免**不取消止损纪律**，只取消"估值高→降分"的惩罚；动量优先于估值
+- Trending-Up 下 RSI-7 > 75 为动能延续信号（重申）：不惩罚 bias_score，但限制仓位 ≤ 0.3 防追高
 
 *财报窗口规则*
 - `earnings_days_away ≤ 5` → 财报二元风险，强制 no_trade（已在硬性约束中）
@@ -1607,6 +1691,49 @@ def call_voting_model_api(
 # ─────────────────────────────────────────────
 # 主程序
 # ─────────────────────────────────────────────
+# Python 硬规则前置检查
+# ─────────────────────────────────────────────
+
+def _python_pre_filter(
+    ticker: str,
+    daily: pd.DataFrame,
+    weekly: pd.DataFrame,
+    intel: dict,
+    macro: dict | None = None,
+) -> str | None:
+    """
+    LLM 调用前的 Python 硬规则检查。
+    返回 None  → 正常继续调用 LLM。
+    返回字符串 → 跳过 LLM，直接输出 no_trade，字符串为原因。
+
+    拦截规则（硬拦截，直接 no_trade）：
+    1. 财报 ≤ 5 天：二元事件风险
+    2. 个股周线死叉（EMA50 < EMA200）且价格低于 EMA200：确认下跌趋势
+
+    注：QQQ 死叉改为软限制（bias 上限 0.55 + 仓位上限 0.2），不再硬拦截。
+    """
+    # 1. 财报 ≤ 5 天
+    days = intel.get("earnings_days_away")
+    if days is not None and 0 <= int(days) <= 5:
+        return f"财报仅 {days} 天后（{intel.get('earnings_date', '')}），二元事件风险，强制 no_trade"
+
+    # 2. 个股死叉 + 价格低于 EMA200
+    if not weekly.empty and "Close" in weekly.columns and not daily.empty and "Close" in daily.columns:
+        wc = weekly["Close"].squeeze().dropna()
+        if len(wc) >= 200:
+            w_e50  = float(calc_ema(wc, 50).dropna().iloc[-1])
+            w_e200 = float(calc_ema(wc, 200).dropna().iloc[-1])
+            curr   = float(daily["Close"].squeeze().dropna().iloc[-1])
+            if w_e50 < w_e200 and curr < w_e200:
+                return (
+                    f"个股死叉（EMA50={w_e50:.1f} < EMA200={w_e200:.1f}）"
+                    f"且价格={curr:.1f} < EMA200，确认下跌趋势，跳过 LLM"
+                )
+
+    return None
+
+
+# ─────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(
@@ -1679,6 +1806,35 @@ def main():
     print(f"提示词已保存到: {output_path}")
 
     if args.api:
+        # ── Python 硬规则前置检查（财报/死叉+价格低于EMA200）──────────────
+        pre_reason = _python_pre_filter(ticker, daily, weekly, intel, macro)
+        if pre_reason:
+            import json as _json
+            print(f"\n[前置过滤] {pre_reason}")
+            no_trade_result = _json.dumps({
+                "period": "Weekly", "stock_ticker": ticker,
+                "overall_market_sentiment": "N/A",
+                "qqq_assessment": "N/A", "sector_assessment": "N/A",
+                "macro_rate_environment": "N/A",
+                "earnings_risk_flag": intel.get("earnings_days_away") is not None and int(intel.get("earnings_days_away", 999)) <= 5,
+                "earnings_days_away": intel.get("earnings_days_away"),
+                "asset_analysis": [{
+                    "asset": ticker, "regime": "pre_filtered",
+                    "action": "no_trade", "bias_score": 0.0,
+                    "entry_zone": "N/A", "profit_target": None, "stop_loss": None,
+                    "risk_reward_ratio": None, "invalidation_condition": "N/A",
+                    "estimated_holding_weeks": None, "position_size_pct": 0.0,
+                    "price_action_analysis": {}, "structured_analysis": {}, "intelligence_analysis": {},
+                    "justification": f"[Python前置过滤] {pre_reason}",
+                }]
+            }, ensure_ascii=False, indent=2)
+            api_output_path = f"{ticker.lower()}_api_output.txt"
+            with open(api_output_path, "w", encoding="utf-8") as f:
+                f.write(no_trade_result)
+            print(no_trade_result)
+            print(f"\n分析结果已保存到: {api_output_path}")
+            return
+
         if args.dual_model and args.third_model:
             analysis = call_voting_model_api(
                 prompt,

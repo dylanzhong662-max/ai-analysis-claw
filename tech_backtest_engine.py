@@ -49,6 +49,7 @@ from gold_analysis import (
     calc_bollinger_bands, calc_stochastic, calc_adx, calc_obv, calc_roc,
     fmt_series, compute_indicators,
 )
+from tech_stock_analysis import describe_macd, describe_rsi, describe_bb, describe_price_vs_ema
 
 # ─────────────────────────────────────────────
 # API 配置（优先阿里云 DashScope）
@@ -755,33 +756,18 @@ def build_blind_prompt(asset_ticker: str, daily: pd.DataFrame, weekly: pd.DataFr
     short_stop   = round(current_price + 2.0 * atr, 2)
     short_target = round(current_price - 4.0 * atr, 2)
 
-    # ── 日线序列 ──
-    n = 15
-    daily_closes = fmt_series(close_d, 2, n)
-    daily_ema20  = fmt_series(d_ind["ema20"], 2, n)
-    daily_ema50  = fmt_series(d_ind["ema50"], 2, n)
-    daily_macd   = fmt_series(d_ind["macd"], 4, n)
-    daily_rsi14  = fmt_series(d_ind["rsi14"], 2, n)
-
-    # ── 周线序列 ──
-    n_w = 12
-    weekly_closes  = fmt_series(close_w, 2, n_w)
-    weekly_macd    = fmt_series(w_ind['macd'], 2, n_w)
-    weekly_rsi14   = fmt_series(w_ind['rsi14'], 2, n_w)
-    weekly_ema20   = fmt_series(w_ind['ema20'], 2, n_w)
-    weekly_ema50   = fmt_series(w_ind['ema50'], 2, n_w)
-    weekly_adx     = fmt_series(w_ind['adx'], 1, n_w)
-    weekly_stoch_k = fmt_series(w_ind['stoch_k'], 1, n_w)
-    weekly_bb_pctb = fmt_series(w_ind['bb_pct_b'], 3, n_w)
-
-    # ── 月线序列 ──
-    monthly_closes = monthly_macd = monthly_rsi14 = "N/A"
+    # ── 文本形态描述（替代原始数字序列，避免 LLM 混淆方向） ──
+    w_price_desc = describe_price_vs_ema(close_w, w_ind, "周线")
+    w_macd_desc  = describe_macd(w_ind, "周线")
+    w_rsi_desc   = describe_rsi(w_ind, "周线")
+    w_bb_desc    = describe_bb(w_ind, "周线")
+    d_macd_desc  = describe_macd(d_ind, "日线")
+    d_rsi_desc   = describe_rsi(d_ind, "日线")
+    m_macd_desc  = m_rsi_desc = "N/A"
     if monthly is not None and not monthly.empty:
-        close_m = monthly["Close"].squeeze()
-        m_ind_for_series = compute_indicators(monthly)
-        monthly_closes = fmt_series(close_m, 2, 12)
-        monthly_macd   = fmt_series(m_ind_for_series['macd'], 2, 12)
-        monthly_rsi14  = fmt_series(m_ind_for_series['rsi14'], 2, 12)
+        m_ind_bt = compute_indicators(monthly)
+        m_macd_desc = describe_macd(m_ind_bt, "月线")
+        m_rsi_desc  = describe_rsi(m_ind_bt, "月线")
 
     def _fv(v, u=""):
         return f"{v}{u}" if v is not None else "N/A"
@@ -882,29 +868,21 @@ def build_blind_prompt(asset_ticker: str, daily: pd.DataFrame, weekly: pd.DataFr
 
 ---
 
-## 四、序列数据（从旧到新排列，⚠️最后一个值 = 最新）
+## 四、动量形态描述（Python 预处理，供判断方向和强度参考）
 
-**周线数据（近{n_w}周）**：
-收盘价:     [{weekly_closes}]
-EMA-20:     [{weekly_ema20}]
-EMA-50:     [{weekly_ema50}]
-MACD:       [{weekly_macd}]
-RSI-14:     [{weekly_rsi14}]
-ADX:        [{weekly_adx}]
-Stoch %K:   [{weekly_stoch_k}]
-BB %B:      [{weekly_bb_pctb}]
+**周线形态**：
+- {w_price_desc}
+- {w_macd_desc}
+- {w_rsi_desc}
+- {w_bb_desc}
 
-**日线数据（近{n}个交易日，辅助入场定时）**：
-收盘价: [{daily_closes}]
-EMA-20: [{daily_ema20}]
-EMA-50: [{daily_ema50}]
-MACD:   [{daily_macd}]
-RSI-14: [{daily_rsi14}]
+**日线形态（辅助入场定时）**：
+- {d_macd_desc}
+- {d_rsi_desc}
 
-**月线数据（近12个月，仅背景参考，权重 ≤ ±0.05）**：
-收盘价: [{monthly_closes}]
-MACD:   [{monthly_macd}]
-RSI-14: [{monthly_rsi14}]
+**月线形态（仅背景参考，权重 ≤ ±0.05）**：
+- {m_macd_desc}
+- {m_rsi_desc}
 
 ---
 
@@ -970,7 +948,8 @@ RSI-14: [{monthly_rsi14}]
 
 **通用规则（硬性约束）**：
 - `bias_score < 0.50` → 强制 no_trade
-- QQQ 处于死叉（EMA50 < EMA200）→ 禁止做多
+- **个股周线死叉 + 价格低于 EMA200** → 确认下跌趋势，禁止做多（Python 层已前置拦截）
+- **个股周线死叉 + 价格高于或等于 EMA200** → 修复行情，允许做多但 bias_score ≤ 0.60，制度分类为 Trending-Recovery
 - 做空需同时满足：QQQ 死叉 **且** VIX > 25 **且** 股价低于周线 EMA-200；三者缺一禁止做空
 - `risk_reward_ratio < 2.0` → 盈亏比不足，no_trade
 - 止损距 entry < 2.0×周ATR（{_fv(w_atr14)}）→ 止损太紧，中长线需给价格足够呼吸空间
@@ -1156,10 +1135,11 @@ def _call_claude_raw(prompt: str, system_prompt: str, rate_limit: int = 20) -> d
 
 def call_dual_api(prompt: str, primary_model: str, system_prompt: str,
                   rate_limit: int, second_model: str = None,
-                  asset_ticker: str = "", dual_threshold: float = 0.55) -> dict:
+                  asset_ticker: str = "", dual_threshold: float = 0.60) -> dict:
     """
     双模型确认：主模型初筛，若 action=long/short 且 bias >= threshold 则触发确认模型。
     两者一致 → 使用确认模型结果；分歧 → 强制 no_trade。
+    threshold 从 0.55 提高到 0.60，避免边界 bias(0.50) 频繁触发 Claude 后分歧强制 no_trade。
     """
     primary_signal = call_api(prompt, primary_model, system_prompt, rate_limit)
     if not second_model or not primary_signal:
@@ -1173,11 +1153,10 @@ def call_dual_api(prompt: str, primary_model: str, system_prompt: str,
     action = sig.get("action", "no_trade")
     bias   = float(sig.get("bias_score") or 0)
 
-    # Trending-Up 制度下降低确认门槛，避免牛市错失过多信号
+    # 统一使用 dual_threshold（0.60），移除 Trending-Up 的 0.50 特殊降档
+    # 原因：0.50 降档导致大量 long(0.50) 触发 Claude 后因分歧被强制 no_trade，产生噪音
     regime = sig.get("regime", "")
     effective_threshold = dual_threshold
-    if regime in ("Trending-Up", "Trending-Recovery") and action == "long":
-        effective_threshold = 0.50  # 趋势向上时0.50即触发双模型确认
 
     if action == "no_trade" or bias < effective_threshold:
         print(f"  [双模型] 初筛: {action} bias={bias:.2f} → 低于阈值，跳过确认")
@@ -1787,6 +1766,29 @@ def _save_and_print(asset_ticker: str, records: list[dict], signals_file: Path, 
 # 组合回测（串行持仓 + 真实佣金 + 资金曲线）
 # ─────────────────────────────────────────────
 
+def _python_pre_filter_bt(weekly: "pd.DataFrame", today_close: float,
+                          macro: dict = None) -> Optional[str]:
+    """回测专用前置过滤：跳过明显 no_trade 场景，节省 LLM 调用次数。
+    返回 None 表示通过，返回字符串表示被过滤的原因。
+    （注：回测为盲化场景，无财报日期数据）
+    规则：
+    1. 个股死叉 + 价格低于 EMA200：确认下跌趋势
+    2. QQQ 死叉（EMA50 < EMA200）：禁止做多，跳过 LLM
+    """
+    if weekly is None or weekly.empty or "Close" not in weekly.columns:
+        return None
+    wc = weekly["Close"].squeeze().dropna()
+    if len(wc) >= 200:
+        w_e50  = float(calc_ema(wc, 50).dropna().iloc[-1])
+        w_e200 = float(calc_ema(wc, 200).dropna().iloc[-1])
+        if w_e50 < w_e200 and today_close < w_e200:
+            return (f"死叉+价格确认（EMA50={w_e50:.1f}<EMA200={w_e200:.1f}，"
+                    f"收盘{today_close:.1f}<EMA200），跳过LLM")
+
+    # QQQ 死叉改为软限制（不在 pre-filter 硬拦截，在信号后处理中 cap bias/仓位）
+    return None
+
+
 def _safe_float_bt(val) -> Optional[float]:
     """鲁棒价格解析，兼容 LLM 幻觉格式（'145.5 (approx)', '~145', None）。"""
     if val is None:
@@ -1930,40 +1932,55 @@ def run_portfolio_backtest(
             # 滑点：做多付 ask（+slippage），做空收 bid（-slippage）
             if pe_action == "long":
                 entry_price = today_open * (1 + slippage_pct)
-                risk        = entry_price - pe["stop"]
-                reward      = pe["target"] - entry_price
+                # ── BAD_RR 修复：stop/target 以实际入场价为基准重算 ──
+                # 原问题：信号日收盘价计算的 stop/target，次日高开后 reward 缩小 → RR<2 → 放弃
+                # 修复：入场时以 entry_price 为锚点，始终保证 RR=2.0
+                atr        = pe.get("atr", entry_price * 0.03)
+                stop       = round(entry_price - 1.5 * atr, 2)   # 1.5×ATR（原2.5×，收紧提高资金效率）
+                target     = round(entry_price + 3.0 * atr, 2)   # 3.0×ATR（RR=2.0，原5.0×）
+                risk       = entry_price - stop
+                reward     = target - entry_price
             else:  # short
                 entry_price = today_open * (1 - slippage_pct)
-                risk        = pe["stop"] - entry_price
-                reward      = entry_price - pe["target"]
+                atr        = pe.get("atr", entry_price * 0.03)
+                stop       = round(entry_price + 1.5 * atr, 2)
+                target     = round(entry_price - 3.0 * atr, 2)
+                risk       = stop - entry_price
+                reward     = entry_price - target
 
             if risk > 0 and reward > 0 and (reward / risk) >= min_rr:
                 portfolio_val = cash  # 此时尚未建仓，cash = 全部净值
                 risk_budget   = portfolio_val * risk_per_trade
                 qty_by_risk   = int(risk_budget / risk) if risk > 0 else 0
-                qty_by_cap    = int(cash * max_position_pct / entry_price)
+                # QQQ 死叉期间仓位上限 20%（软限制，防止逆大盘重仓）
+                eff_cap = 0.20 if pe.get("qqq_dc") else max_position_pct
+                qty_by_cap    = int(cash * eff_cap / entry_price)
                 quantity      = min(qty_by_risk, qty_by_cap)
 
                 # 统一将名义持仓价值从 cash 中扣除（多空均锁定等额保证金）
                 cost = quantity * entry_price * (1 + commission_pct)
                 if quantity > 0 and cost <= cash:
                     cash -= cost
-                    actual_pct = quantity * entry_price / portfolio_val
+                    actual_pct   = quantity * entry_price / portfolio_val
+                    stop_dist_pct = risk / entry_price * 100
                     position = {
                         "action":      pe_action,
                         "entry_price": entry_price,  # 含滑点的实际成交价
-                        "stop":        pe["stop"],
-                        "target":      pe["target"],
+                        "stop":        stop,          # 基于入场价重算的止损
+                        "target":      target,        # 基于入场价重算的目标价
                         "quantity":    quantity,
                         "entry_date":  today_str,
                         "hold_days":   0,
                         "signal_date": pe["signal_date"],
                         "bias":        pe["bias"],
                         "regime":      pe["regime"],
+                        "atr":         atr,
+                        "peak_price":  entry_price,   # 初始峰值 = 入场价
                     }
-                    print(f"  [ENTER {pe_action.upper()}] {today_str} @ {entry_price:.2f}(含滑点) ×{quantity}"
-                          f"  stop={pe['stop']:.2f}  target={pe['target']:.2f}"
-                          f"  rr={reward/risk:.2f}  size={actual_pct:.0%}")
+                    print(f"  [ENTER {pe_action.upper()}] {today_str} @ ${entry_price:.2f} ×{quantity}股"
+                          f"  持仓市值=${quantity*entry_price:,.0f}({actual_pct:.0%}净值)"
+                          f"  止损=${stop:.2f}(-{stop_dist_pct:.1f}%)  目标=${target:.2f}"
+                          f"  RR={reward/risk:.2f}  bias={pe['bias']:.2f}  {pe['regime']}")
             else:
                 rr = reward / risk if risk > 0 else 0
                 print(f"  [ENTRY_SKIP] {today_str} 入场时 rr={rr:.2f} 不足，放弃")
@@ -1973,21 +1990,26 @@ def run_portfolio_backtest(
             position["hold_days"] += 1
             pos_action = position["action"]
 
-            # ── 移动止损更新（仅做多）─────────────────────────────────
+            # ── ATR 移动止损更新（仅做多）──────────────────────────────
+            # 逻辑：跟踪价格峰值，止损 = peak - 3×ATR（趋势感知，只上移不下移）
+            # 效果：只要趋势不坏（未从峰值回撤 3×ATR），持仓就不出场，捕捉肥尾利润
             if pos_action == "long":
-                unrealized_pct = (today_close - position["entry_price"]) / position["entry_price"] * 100
-                if unrealized_pct >= 10.0:
-                    # 跟踪止损：锁定 50% 盈利
-                    new_trail = position["entry_price"] + (today_close - position["entry_price"]) * 0.5
-                    if new_trail > position["stop"]:
-                        position["stop"] = round(new_trail, 2)
-                        position["trailing"] = True
-                        print(f"  [TRAIL+] {today_str} 止损上移至 {position['stop']:.2f} (锁定50%盈利, 浮盈{unrealized_pct:.1f}%)")
-                elif unrealized_pct >= 8.0 and not position.get("trailing", False):
-                    if position["entry_price"] > position["stop"]:
-                        position["stop"] = round(position["entry_price"], 2)
-                        position["trailing"] = True
-                        print(f"  [TRAIL] {today_str} 止损移至入场价 {position['stop']:.2f} (保本, 浮盈{unrealized_pct:.1f}%)")
+                # 更新峰值
+                if today_high > position.get("peak_price", position["entry_price"]):
+                    position["peak_price"] = today_high
+
+                peak = position.get("peak_price", position["entry_price"])
+                atr  = position.get("atr", 1.0)
+
+                # 计算新止损位：peak - 3×ATR
+                trail = round(peak - 3.0 * atr, 2)
+                if trail > position["stop"]:
+                    old_stop = position["stop"]
+                    position["stop"] = trail
+                    position["trailing"] = True
+                    gain_pct = (peak - position["entry_price"]) / position["entry_price"] * 100
+                    print(f"  [TRAIL] {today_str} 峰值{peak:.2f}-3×ATR{atr:.2f} "
+                          f"止损 {old_stop:.2f}→{trail:.2f} (峰值浮盈{gain_pct:.1f}%)")
 
             exit_price  = None
             exit_reason = None
@@ -1995,11 +2017,13 @@ def run_portfolio_backtest(
             if pos_action == "long":
                 if today_low <= position["stop"]:
                     exit_price, exit_reason = position["stop"], "STOP_LOSS"
-                elif today_high >= position["target"]:
+                elif today_high >= position["target"] and not position.get("trailing", False):
+                    # trailing 激活后跳过固定止盈，让趋势继续跑（target 仅作入场验证 RR 用）
                     exit_price, exit_reason = position["target"], "TAKE_PROFIT"
                 elif position["hold_days"] >= eval_days and not position.get("trailing", False):
                     exit_price, exit_reason = today_close, "TIMEOUT"
                 elif position["hold_days"] >= eval_days * 2:
+                    # 绝对最大持仓上限（trailing 也适用，防止永久持仓）
                     exit_price, exit_reason = today_close, "TIMEOUT_EXTENDED"
             else:  # short：止损触发方向相反
                 if today_high >= position["stop"]:
@@ -2109,7 +2133,23 @@ def run_portfolio_backtest(
         if daily.empty or len(daily) < 30:
             continue
 
-        macro  = fetch_macro_for_date(today_str, asset_ticker)
+        # 计算周线 ATR（Python 止损/目标价的基础，与 LLM 输出解耦）
+        _w_ind_tmp = compute_indicators(weekly)
+        _w_atr_s   = _w_ind_tmp['atr14'].dropna()
+        w_atr14_bt = float(_w_atr_s.iloc[-1]) if not _w_atr_s.empty else 1.0
+
+        # 提前获取宏观数据（供 QQQ 死叉前置过滤使用，避免无效 LLM 调用）
+        macro = fetch_macro_for_date(today_str, asset_ticker)
+
+        # 前置过滤：个股死叉+价格确认 / QQQ 死叉 → 跳过 LLM，节省 token
+        pre_block = _python_pre_filter_bt(weekly, today_close, macro)
+        if pre_block:
+            print(f"[{idx+1:>3}/{len(all_days)}] {today_str}  PRE_FILTER → {pre_block}")
+            signal_records.append({"date": today_str, "action": "no_trade",
+                                   "bias_score": 0.0, "regime": "blocked_pre_filter",
+                                   "profit_target": None, "stop_loss": None})
+            continue
+
         prompt = build_blind_prompt(asset_ticker, daily, weekly, macro, None, monthly)
         if not prompt:
             continue
@@ -2130,52 +2170,68 @@ def run_portfolio_backtest(
         action = sig.get("action", "no_trade")
         bias   = float(sig.get("bias_score") or 0)
         regime = sig.get("regime", "")
-        pt     = _safe_float_bt(sig.get("profit_target"))
-        sl     = _safe_float_bt(sig.get("stop_loss"))
+
+        # ── QQQ 死叉软限制（cap bias≤0.55，入场仓位上限20%）────────────
+        qqq_dc = False
+        if action == "long" and macro:
+            qqq_df = macro.get("qqq", pd.DataFrame())
+            if not qqq_df.empty and "Close" in qqq_df.columns:
+                qqq_c = qqq_df["Close"].squeeze().dropna()
+                if len(qqq_c) >= 50:
+                    q_e50  = float(calc_ema(qqq_c, 50).dropna().iloc[-1])
+                    q_e200 = float(calc_ema(qqq_c, 200).dropna().iloc[-1])
+                    if q_e50 < q_e200:
+                        qqq_dc = True
+                        old_bias = bias
+                        bias = min(bias, 0.55)
+                        if old_bias != bias:
+                            print(f"[QQQ死叉软限] bias {old_bias:.2f}→{bias:.2f}", end="  ")
 
         print(f"action={action}  bias={bias:.2f}  regime={regime}", end="  ")
         signal_records.append({"date": today_str, "action": action,
                                 "bias_score": bias, "regime": regime,
-                                "profit_target": pt, "stop_loss": sl})
+                                "profit_target": None, "stop_loss": None})
 
         if action not in ("long", "short") or bias < 0.45:
             print("→ SKIP")
             continue
 
-        # ── 个股周线死叉：硬过滤，禁止做多 ────────────────────────────
-        # 回测结果显示：2022年熊市中做多4次连续止损(-18%~-24%)，根本原因是个股
-        # 自身周线EMA50<EMA200（死叉）时QQQ尚未确认死叉，仅靠提示词约束不足。
-        # 此处强制拦截，避免在确认下跌趋势的个股上做多。
+        # ── 个股周线死叉：价格分档过滤 ────────────────────────────────
+        # 价格 < EMA200（确认下跌趋势）→ 硬拦截禁止做多（2022年熊市式）
+        # 价格 ≥ EMA200（修复行情）→ 允许做多，但将 bias 压低至 0.60（Trending-Recovery）
         if action == "long" and not weekly.empty and "Close" in weekly.columns:
             wc = weekly["Close"].squeeze().dropna()
             w_e50  = calc_ema(wc, 50).dropna()
             w_e200 = calc_ema(wc, 200).dropna()
             if len(w_e50) > 0 and len(w_e200) > 0:
-                if float(w_e50.iloc[-1]) < float(w_e200.iloc[-1]):
-                    print(f"→ LONG_BLOCKED(周线死叉 EMA50={w_e50.iloc[-1]:.1f}<EMA200={w_e200.iloc[-1]:.1f})")
-                    signal_records[-1]["action"] = "blocked_death_cross"
-                    continue
+                e50_v  = float(w_e50.iloc[-1])
+                e200_v = float(w_e200.iloc[-1])
+                if e50_v < e200_v:                        # 死叉
+                    if today_close < e200_v:              # 价格在 EMA200 之下 → 硬拦截
+                        print(f"→ LONG_BLOCKED(死叉+价格{today_close:.1f}<EMA200={e200_v:.1f})")
+                        signal_records[-1]["action"] = "blocked_death_cross"
+                        continue
+                    else:                                  # 价格在 EMA200 之上 → 修复行情，软压制
+                        bias = min(bias, 0.60)
+                        print(f"→ LONG_RECOVERY(死叉但价格{today_close:.1f}≥EMA200={e200_v:.1f}, bias→{bias:.2f})", end="  ")
 
-        if pt is None or sl is None:
-            print("→ MISSING_LEVELS")
-            continue
-
-        # 用当日收盘价验证 R:R（入场在次日开盘，这里做预筛）
+        # ── Python ATR 止损/目标价（预估值，入场时以实际开盘价重新计算）─────────
+        # 止损：1.5×ATR（更紧止损 → 更大仓位，RR保持 2.0）
+        # 目标：3×ATR（RR=2.0；trailing 激活后此值仅作入场验证用）
+        # 注意：这里是排队时的预估，实际止损/目标在 run_portfolio_backtest 入场时用开盘价重算
         if action == "long":
-            risk_chk   = today_close - sl
-            reward_chk = pt - today_close
-        else:  # short
-            risk_chk   = sl - today_close
-            reward_chk = today_close - pt
-        if risk_chk <= 0 or reward_chk <= 0 or (reward_chk / risk_chk) < min_rr:
-            rr = reward_chk / risk_chk if risk_chk > 0 else 0
-            print(f"→ BAD_RR({rr:.2f})")
-            continue
+            py_stop   = round(today_close - 1.5 * w_atr14_bt, 2)
+            py_target = round(today_close + 3.0 * w_atr14_bt, 2)
+        else:
+            py_stop   = round(today_close + 1.5 * w_atr14_bt, 2)
+            py_target = round(today_close - 3.0 * w_atr14_bt, 2)
 
         # 排队，次日开盘入场
-        pending_entry = {"action": action, "stop": round(sl, 2), "target": round(pt, 2),
-                         "signal_date": today_str, "bias": bias, "regime": regime}
-        print(f"→ QUEUED({action})  stop={sl:.2f}  target={pt:.2f}")
+        pending_entry = {"action": action, "stop": py_stop, "target": py_target,
+                         "signal_date": today_str, "bias": bias, "regime": regime,
+                         "atr": w_atr14_bt, "qqq_dc": qqq_dc}
+        dc_note = "  [QQQ死叉轻仓≤20%]" if qqq_dc else ""
+        print(f"→ QUEUED({action})  stop={py_stop:.2f}  target={py_target:.2f}  atr={w_atr14_bt:.2f}{dc_note}")
 
     # ── 回测结束：强平未平仓位 ────────────────────────────────────
     if position is not None and all_days:
@@ -2376,7 +2432,7 @@ if __name__ == "__main__":
     parser.add_argument("--ticker",         required=True,              help="股票代码，如 NVDA, MSFT, GOOGL")
     parser.add_argument("--generate",       action="store_true",        help="生成 Prompt 文件（无需 API Key）")
     parser.add_argument("--evaluate",       action="store_true",        help="评估已有响应文件（无需 API Key）")
-    parser.add_argument("--portfolio",      action="store_true",        help="【推荐】组合回测：串行持仓+真实佣金+资金曲线")
+    parser.add_argument("--portfolio",      action="store_true",        help="（已默认，保留此参数仅作向后兼容）")
     parser.add_argument("--start",          default="2024-01-01",       help="回测开始日期 YYYY-MM-DD")
     parser.add_argument("--end",            default="2024-12-31",       help="回测结束日期 YYYY-MM-DD")
     parser.add_argument("--step",           default=1,    type=int,     help="每隔N个交易日触发LLM一次（默认1=每日评估）")
@@ -2403,7 +2459,8 @@ if __name__ == "__main__":
         run_generate(ticker, args.start, args.end, args.step, args.eval_days)
     elif args.evaluate:
         run_evaluate(ticker, args.eval_days)
-    elif args.portfolio:
+    else:
+        # portfolio 模式为默认，--portfolio 参数保留仅作向后兼容
         run_portfolio_backtest(
             asset_ticker         = ticker,
             start                = args.start,
@@ -2422,21 +2479,4 @@ if __name__ == "__main__":
             second_model         = args.second_model,
             consec_stop_limit    = args.consec_stop_limit,
             circuit_breaker_days = args.circuit_breaker_days,
-        )
-    else:
-        run_backtest(
-            asset_ticker  = ticker,
-            start         = args.start,
-            end           = args.end,
-            step          = args.step,
-            model         = args.model,
-            eval_days     = args.eval_days,
-            dry_run       = args.dry_run,
-            rate_limit    = args.rate_limit,
-            resume        = args.resume,
-            start_from    = args.start_from,
-            oos_split     = args.oos_split,
-            slippage_pct  = args.slippage,
-            reproducible  = args.reproducible,
-            second_model  = args.second_model,
         )
