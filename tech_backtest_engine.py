@@ -507,6 +507,54 @@ def fetch_data_up_to(ticker: str, ref_date: str, lookback: int = 200) -> tuple[p
     return daily, weekly, monthly
 
 
+
+def fetch_historical_earnings(ticker: str, start: str, end: str) -> dict:
+    """
+    获取历史财报日期，返回 {date_str: "upcoming"} 的查找字典。
+    
+    Plan A 实现：把实盘的"财报黑名单"规则引入回测。
+    - 财报前 ≤5 天：强制 no_trade（完全屏蔽）
+    - 财报前 6-15 天：允许信号但 bias_score 上限 0.55
+    
+    使用 yfinance earnings_dates，该字段包含历史财报日期及 EPS 数据。
+    """
+    result = {}
+    try:
+        t = yf.Ticker(ticker)
+        ed = t.earnings_dates
+        if ed is None or ed.empty:
+            return result
+        # earnings_dates 索引为 DatetimeTzAware，转换为 date string
+        for dt in ed.index:
+            ds = dt.strftime("%Y-%m-%d")
+            if start <= ds <= end:
+                result[ds] = "earnings"
+        print(f"  [财报日历] {ticker}: {len(result)} 个财报日 ({start}~{end})")
+    except Exception as e:
+        print(f"  [财报日历] 获取失败: {e}")
+    return result
+
+
+def _earnings_proximity(signal_date: str, earnings_lookup: dict) -> tuple[int, str]:
+    """
+    计算 signal_date 距最近下一个财报日的天数（仅计算未来方向）。
+    返回 (days_to_next_earnings, earnings_date_str)
+    如果无未来财报日，返回 (999, "")
+    """
+    if not earnings_lookup:
+        return 999, ""
+    sig_dt = pd.Timestamp(signal_date)
+    future_earnings = [
+        pd.Timestamp(d) for d in sorted(earnings_lookup.keys())
+        if pd.Timestamp(d) > sig_dt
+    ]
+    if not future_earnings:
+        return 999, ""
+    nearest = future_earnings[0]
+    days = (nearest - sig_dt).days
+    return days, nearest.strftime("%Y-%m-%d")
+
+
 def fetch_macro_for_date(ref_date: str, asset_ticker: str) -> dict:
     end_dt    = pd.Timestamp(ref_date)
     end_str   = (end_dt + timedelta(days=1)).strftime("%Y-%m-%d")
@@ -665,9 +713,109 @@ def _summarize_macro(macro: dict, stock_close: pd.Series, asset_ticker: str) -> 
     return result
 
 
+
+# ─────────────────────────────────────────────
+# 方向B：历史盈利惊喜注入（无泄漏）
+# ─────────────────────────────────────────────
+
+_EPS_CACHE: dict = {}  # ticker → earnings_history DataFrame（进程内缓存）
+
+
+def fetch_eps_surprise_history(ticker: str) -> "pd.DataFrame | None":
+    """
+    获取历史 EPS 惊喜记录（yfinance earnings_history）。
+    
+    返回 DataFrame，列: epsActual, epsEstimate, epsDifference, surprisePercent
+    索引: quarter（fiscal quarter end date）
+    
+    yfinance 只返回近 4 季，但已足够让 LLM 判断盈利质量趋势。
+    进程内缓存，同一 ticker 不重复请求。
+    """
+    ticker = ticker.upper()
+    if ticker in _EPS_CACHE:
+        return _EPS_CACHE[ticker]
+    try:
+        t = yf.Ticker(ticker, session=_make_session())
+        eh = t.earnings_history
+        if eh is not None and not eh.empty:
+            _EPS_CACHE[ticker] = eh
+            print(f"  [EPS历史] {ticker}: 获取 {len(eh)} 季盈利惊喜数据")
+            return eh
+    except Exception as e:
+        print(f"  [EPS历史] {ticker} 获取失败 (将跳过盈利惊喜注入): {e}")
+    _EPS_CACHE[ticker] = None
+    return None
+
+
+def _filter_past_eps(eh: "pd.DataFrame", signal_date: str, n: int = 4) -> list[dict]:
+    """
+    过滤出在 signal_date 之前已公布的历史 EPS 季报（严格无泄漏）。
+    
+    防泄漏逻辑：
+      - earnings_history 索引是 fiscal quarter END date（如 2025-04-30）
+      - 财报通常在季末后 4-6 周发布
+      - 保守要求：quarter_end + 45天 < signal_date，确保该季已发布
+    
+    返回最近 n 季，从旧到新排列。
+    """
+    if eh is None or eh.empty:
+        return []
+    sig_dt = pd.Timestamp(signal_date)
+    rows = []
+    for qt, row in eh.iterrows():
+        qt_ts = pd.Timestamp(qt)
+        # 季末 + 45天 < 信号日：该季已发布，可安全使用
+        if qt_ts + pd.Timedelta(days=45) < sig_dt:
+            rows.append({
+                "quarter": qt_ts.strftime("%Y-%m"),
+                "actual":  round(float(row["epsActual"]),   3) if pd.notna(row["epsActual"])   else None,
+                "est":     round(float(row["epsEstimate"]), 3) if pd.notna(row["epsEstimate"]) else None,
+                "surp":    round(float(row["surprisePercent"]) * 100, 1) if pd.notna(row["surprisePercent"]) else None,
+            })
+    # 按时间升序，取最近 n 季
+    rows.sort(key=lambda x: x["quarter"])
+    return rows[-n:]
+
+
+def _format_eps_section(past_eps: list[dict]) -> str:
+    """将过滤后的 EPS 列表格式化为 Markdown 表格，注入 prompt。"""
+    if not past_eps:
+        return ""
+    lines = [
+        "",
+        "## 九点五、历史盈利惊喜（已发布季报，无未来信息）",
+        "",
+        "| 季度结束 | 实际EPS | 预估EPS | 超预期幅度 |",
+        "|----------|---------|---------|-----------|",
+    ]
+    for r in past_eps:
+        actual = f"${r['actual']}" if r["actual"] is not None else "N/A"
+        est    = f"${r['est']}"    if r["est"]    is not None else "N/A"
+        surp   = f"{r['surp']:+.1f}%" if r["surp"] is not None else "N/A"
+        lines.append(f"| {r['quarter']} | {actual} | {est} | {surp} |")
+    
+    # 连续 beat/miss 判断
+    surps = [r["surp"] for r in past_eps if r["surp"] is not None]
+    if surps:
+        beats = sum(1 for s in surps if s > 0)
+        avg_surp = sum(surps) / len(surps)
+        trend = f"近{len(surps)}季 {beats}/{len(surps)} 次超预期，平均超预期 {avg_surp:+.1f}%"
+        lines.append(f"")
+        lines.append(f"> **盈利质量摘要**: {trend}")
+        if all(s > 0 for s in surps):
+            lines.append("> ⚡ 连续全部超预期 — 管理层指引保守，执行力强")
+        elif all(s < 0 for s in surps):
+            lines.append("> ⚠️ 连续全部未达预期 — 盈利可见性差，注意下修风险")
+    
+    lines.append("")
+    return "\n".join(lines)
+
+
 def build_blind_prompt(asset_ticker: str, daily: pd.DataFrame, weekly: pd.DataFrame,
                        macro: dict | None = None, perf_metrics: dict | None = None,
-                       monthly: pd.DataFrame | None = None) -> str:
+                       monthly: pd.DataFrame | None = None,
+                       eps_history: "pd.DataFrame | None" = None,
+                       signal_date: str = "") -> str:
     if daily.empty or weekly.empty or len(daily) < 30:
         return ""
 
@@ -751,10 +899,10 @@ def build_blind_prompt(asset_ticker: str, daily: pd.DataFrame, weekly: pd.DataFr
 
     # ── 预计算入场锚点（基于周线 ATR-14，中线持仓） ──
     atr = w_atr14 or atr14 or 1.0
-    long_stop    = round(current_price - 2.0 * atr, 2)
-    long_target  = round(current_price + 4.0 * atr, 2)
-    short_stop   = round(current_price + 2.0 * atr, 2)
-    short_target = round(current_price - 4.0 * atr, 2)
+    long_stop    = round(current_price - 2.5 * atr, 2)
+    long_target  = round(current_price + 5.0 * atr, 2)
+    short_stop   = round(current_price + 2.5 * atr, 2)
+    short_target = round(current_price - 5.0 * atr, 2)
 
     # ── 文本形态描述（替代原始数字序列，避免 LLM 混淆方向） ──
     w_price_desc = describe_price_vs_ema(close_w, w_ind, "周线")
@@ -785,17 +933,12 @@ def build_blind_prompt(asset_ticker: str, daily: pd.DataFrame, weekly: pd.DataFr
             f"⚠️ **【禁止追空】** 价格距52周高点已跌 {pct_high:.1f}%（>20%），做空风险回报极差，强制 no_trade。"
         )
 
-    # ── 绩效反馈 ──
-    perf_feedback = ""
-    if perf_metrics:
-        lines = []
-        wr = perf_metrics.get("win_rate", 50)
-        cl = perf_metrics.get("consecutive_losses", 0)
-        if wr < 40:
-            lines.append(f"⚠️ 历史绩效反馈：近期胜率 {wr:.1f}% < 40%，bias_score 门槛提升至 ≥ 0.65")
-        if cl >= 2:
-            lines.append(f"⚠️ 历史绩效反馈：连续亏损 {cl} 笔，需 bias_score ≥ 0.75 才入场")
-        perf_feedback = "\n".join(lines)
+    # ── 绩效反馈（已移除：动态阈值无统计支撑，样本量不足）──
+    perf_feedback = ""  # 移除 win_rate<40%→0.65 和 consecutive_losses→0.75 规则
+
+    # ── 历史盈利惊喜（方向B）──
+    past_eps = _filter_past_eps(eps_history, signal_date) if eps_history is not None and signal_date else []
+    eps_section = _format_eps_section(past_eps)
 
     # ── 行业专属上下文（与实盘一致，直接注入用户 prompt） ──
     ctx = TICKER_CONTEXT.get(asset_ticker.upper(), DEFAULT_CONTEXT)
@@ -941,7 +1084,7 @@ def build_blind_prompt(asset_ticker: str, daily: pd.DataFrame, weekly: pd.DataFr
 {industry_context}
 
 ---
-
+{eps_section}
 ## 九、特殊过滤规则
 
 {chr(10).join(filter_rules) if filter_rules else '当前无特殊过滤规则触发'}
@@ -961,8 +1104,7 @@ def build_blind_prompt(asset_ticker: str, daily: pd.DataFrame, weekly: pd.DataFr
 - 周线 MACD ({_fv(w_macd)}) < 0 且周线 Trending 制度 → 禁止做多
 - 周线 RSI-7 ({_fv(w_rsi7)}) > 75 → **仅 Mean-Reverting/Consolidation 制度**时做多 bias_score 上限 0.55；Trending-Up 制度下 RSI>75 为动能确认，不强制限制 bias_score，但须降低仓位（position_size_pct ≤ 0.3）
 - 价格偏离周线 EMA-20 ({_fv(w_ema20)}) 超过 5% → bias_score 上限 0.55
-- 周线 ADX ({_fv(w_adx)}) < 20 → 制度降级为 Consolidation，bias_score 上限 0.45
-- OBV 近6周下降且价格上涨 → bias_score 降低 0.10
+- 周线 ADX ({_fv(w_adx)}) 仅作参考，不强制降级或 cap bias_score
 - XLK 落后 QQQ（科技板块不领涨）→ 做多 bias_score -0.05
 - VIX > 25 → 做多 bias_score 上限 0.60；VIX > 35 → 一律 no_trade
 
@@ -1898,6 +2040,12 @@ def run_portfolio_backtest(
     print(f"  OOS比例={oos_split*100:.0f}%  复现模式={reproducible}  共 {len(all_days)} 个交易日")
     print("=" * 60)
 
+    # ── 财报日历（Plan A：复现实盘的财报黑名单规则）─────────────────
+    earnings_lookup = fetch_historical_earnings(asset_ticker, start, end)
+
+    # ── 历史 EPS 惊喜数据（方向B：预取一次，逐日过滤注入 prompt）─
+    eps_history_df = fetch_eps_surprise_history(asset_ticker)
+
     # ── 状态变量 ──────────────────────────────────────────────────
     cash: float            = float(initial_capital)
     position: Optional[dict] = None  # 当前持仓
@@ -1906,8 +2054,7 @@ def run_portfolio_backtest(
     pending_entry: Optional[dict] = None  # 昨日信号，今日开盘入场
 
     # 连续止损熔断
-    consecutive_stops: int    = 0
-    circuit_breaker_end_idx: int = -1  # all_days 里的索引上界（含），到此日前不入场
+    # 熔断逻辑已移除（无统计支撑的规则）
 
     equity_curve: list[dict]  = []
     trade_records: list[dict] = []
@@ -1936,15 +2083,15 @@ def run_portfolio_backtest(
                 # 原问题：信号日收盘价计算的 stop/target，次日高开后 reward 缩小 → RR<2 → 放弃
                 # 修复：入场时以 entry_price 为锚点，始终保证 RR=2.0
                 atr        = pe.get("atr", entry_price * 0.03)
-                stop       = round(entry_price - 1.5 * atr, 2)   # 1.5×ATR（原2.5×，收紧提高资金效率）
-                target     = round(entry_price + 3.0 * atr, 2)   # 3.0×ATR（RR=2.0，原5.0×）
+                stop       = round(entry_price - 2.5 * atr, 2)   # 2.5×ATR（与实盘一致）
+                target     = round(entry_price + 5.0 * atr, 2)   # 5.0×ATR（RR=2.0）
                 risk       = entry_price - stop
                 reward     = target - entry_price
             else:  # short
                 entry_price = today_open * (1 - slippage_pct)
                 atr        = pe.get("atr", entry_price * 0.03)
-                stop       = round(entry_price + 1.5 * atr, 2)
-                target     = round(entry_price - 3.0 * atr, 2)
+                stop       = round(entry_price + 2.5 * atr, 2)
+                target     = round(entry_price - 5.0 * atr, 2)
                 risk       = stop - entry_price
                 reward     = entry_price - target
 
@@ -1952,8 +2099,7 @@ def run_portfolio_backtest(
                 portfolio_val = cash  # 此时尚未建仓，cash = 全部净值
                 risk_budget   = portfolio_val * risk_per_trade
                 qty_by_risk   = int(risk_budget / risk) if risk > 0 else 0
-                # QQQ 死叉期间仓位上限 20%（软限制，防止逆大盘重仓）
-                eff_cap = 0.20 if pe.get("qqq_dc") else max_position_pct
+                eff_cap = max_position_pct  # QQQ死叉仓位上限已移除
                 qty_by_cap    = int(cash * eff_cap / entry_price)
                 quantity      = min(qty_by_risk, qty_by_cap)
 
@@ -2001,14 +2147,14 @@ def run_portfolio_backtest(
                 peak = position.get("peak_price", position["entry_price"])
                 atr  = position.get("atr", 1.0)
 
-                # 计算新止损位：peak - 3×ATR
-                trail = round(peak - 3.0 * atr, 2)
+                # 计算新止损位：peak - 5×ATR
+                trail = round(peak - 5.0 * atr, 2)
                 if trail > position["stop"]:
                     old_stop = position["stop"]
                     position["stop"] = trail
                     position["trailing"] = True
                     gain_pct = (peak - position["entry_price"]) / position["entry_price"] * 100
-                    print(f"  [TRAIL] {today_str} 峰值{peak:.2f}-3×ATR{atr:.2f} "
+                    print(f"  [TRAIL] {today_str} 峰值{peak:.2f}-5×ATR{atr:.2f} "
                           f"止损 {old_stop:.2f}→{trail:.2f} (峰值浮盈{gain_pct:.1f}%)")
 
             exit_price  = None
@@ -2078,22 +2224,9 @@ def run_portfolio_backtest(
                 if exit_reason == "STOP_LOSS":
                     cooldown     = stop_cooldown + 1
                     eval_counter = 0
-                    # ── 连续止损熔断 ────────────────────────────────
-                    if not position.get("trailing", False):
-                        # 只有"原始止损"（非移动止损保本出场）才累加
-                        consecutive_stops += 1
-                        if consecutive_stops >= consec_stop_limit:
-                            circuit_breaker_end_idx = idx + circuit_breaker_days
-                            print(f"  [熔断] 连续止损 {consecutive_stops} 次 → 暂停入场 {circuit_breaker_days} 个交易日"
-                                  f"（至 {all_days[min(circuit_breaker_end_idx, len(all_days)-1)]}）")
-                            consecutive_stops = 0  # 重置计数
-                    else:
-                        # 移动止损出场（保本或盈利）= 不算亏损，重置计数
-                        consecutive_stops = 0
                 else:
-                    cooldown          = 0
-                    eval_counter      = 0
-                    consecutive_stops = 0  # 止盈/超时出场重置
+                    cooldown     = 0
+                    eval_counter = 0
                 position = None
 
         # ── C. 更新资金曲线 ──────────────────────────────────────
@@ -2110,13 +2243,6 @@ def run_portfolio_backtest(
         # ── D. 冷却期 ────────────────────────────────────────────
         if cooldown > 0:
             cooldown -= 1
-            continue
-
-        # ── D2. 连续止损熔断期 ────────────────────────────────────
-        if idx <= circuit_breaker_end_idx:
-            remaining = circuit_breaker_end_idx - idx
-            if remaining % 5 == 0:  # 每5天打印一次提示
-                print(f"  [熔断中] {today_str} 熔断期剩余 {remaining} 天，跳过信号")
             continue
 
         # ── E. 持仓中跳过信号生成 ────────────────────────────────
@@ -2150,7 +2276,19 @@ def run_portfolio_backtest(
                                    "profit_target": None, "stop_loss": None})
             continue
 
-        prompt = build_blind_prompt(asset_ticker, daily, weekly, macro, None, monthly)
+        # ── 财报黑名单检查（Plan A）────────────────────────────────
+        days_to_earn, earn_date = _earnings_proximity(today_str, earnings_lookup)
+        if days_to_earn <= 5:
+            print(f"[{idx+1:>3}/{len(all_days)}] {today_str}  EARNINGS_BLACKOUT "
+                  f"(财报日 {earn_date} 距今 {days_to_earn}天 ≤5天，强制 no_trade)")
+            signal_records.append({"date": today_str, "action": "no_trade",
+                                   "bias_score": 0.0, "regime": "earnings_blackout",
+                                   "profit_target": None, "stop_loss": None})
+            continue
+        earnings_cap = (days_to_earn <= 15)  # 6-15天：bias_score 上限 0.55
+
+        prompt = build_blind_prompt(asset_ticker, daily, weekly, macro, None, monthly,
+                                       eps_history=eps_history_df, signal_date=today_str)
         if not prompt:
             continue
 
@@ -2171,21 +2309,12 @@ def run_portfolio_backtest(
         bias   = float(sig.get("bias_score") or 0)
         regime = sig.get("regime", "")
 
-        # ── QQQ 死叉软限制（cap bias≤0.55，入场仓位上限20%）────────────
-        qqq_dc = False
-        if action == "long" and macro:
-            qqq_df = macro.get("qqq", pd.DataFrame())
-            if not qqq_df.empty and "Close" in qqq_df.columns:
-                qqq_c = qqq_df["Close"].squeeze().dropna()
-                if len(qqq_c) >= 50:
-                    q_e50  = float(calc_ema(qqq_c, 50).dropna().iloc[-1])
-                    q_e200 = float(calc_ema(qqq_c, 200).dropna().iloc[-1])
-                    if q_e50 < q_e200:
-                        qqq_dc = True
-                        old_bias = bias
-                        bias = min(bias, 0.55)
-                        if old_bias != bias:
-                            print(f"[QQQ死叉软限] bias {old_bias:.2f}→{bias:.2f}", end="  ")
+        qqq_dc = False  # QQQ死叉软限已移除（无统计支撑）
+
+        # 财报临近软压制（6-15天 → bias 上限 0.55）
+        if earnings_cap and action == "long" and bias > 0.55:
+            print(f"[财报软限 {days_to_earn}天] bias {bias:.2f}→0.55", end="  ")
+            bias = 0.55
 
         print(f"action={action}  bias={bias:.2f}  regime={regime}", end="  ")
         signal_records.append({"date": today_str, "action": action,
@@ -2220,11 +2349,11 @@ def run_portfolio_backtest(
         # 目标：3×ATR（RR=2.0；trailing 激活后此值仅作入场验证用）
         # 注意：这里是排队时的预估，实际止损/目标在 run_portfolio_backtest 入场时用开盘价重算
         if action == "long":
-            py_stop   = round(today_close - 1.5 * w_atr14_bt, 2)
-            py_target = round(today_close + 3.0 * w_atr14_bt, 2)
+            py_stop   = round(today_close - 2.5 * w_atr14_bt, 2)
+            py_target = round(today_close + 5.0 * w_atr14_bt, 2)
         else:
-            py_stop   = round(today_close + 1.5 * w_atr14_bt, 2)
-            py_target = round(today_close - 3.0 * w_atr14_bt, 2)
+            py_stop   = round(today_close + 2.5 * w_atr14_bt, 2)
+            py_target = round(today_close - 5.0 * w_atr14_bt, 2)
 
         # 排队，次日开盘入场
         pending_entry = {"action": action, "stop": py_stop, "target": py_target,

@@ -18,8 +18,8 @@
 
 - **LLM 作为推理引擎**：不依赖传统量化模型，由 LLM 读取结构化技术指标 + 宏观数据，模拟对冲基金分析师推理过程，输出标准化 JSON 交易信号。
 - **防时间泄漏（Anti-Leakage）**：回测时提示词不包含具体日期，避免模型利用训练集中的未来知识作弊。
-- **风险约束硬编码**：所有信号必须满足 R:R ≥ 2.0（科技股 ≥ 2.0）、止损 ≥ 1.5×ATR-14（周线），否则系统自动降级为 `no_trade`。
-- **性能反馈闭环**：实时分析脚本读取 `backtest_results/performance.csv`，将胜率、连续亏损次数注入提示词，动态调整模型决策阈值。
+- **风险约束硬编码**：所有信号必须满足 R:R ≥ 2.0（科技股 ≥ 2.0）、止损 ≥ **2.5×ATR-14**（周线），否则系统自动降级为 `no_trade`。
+- **Beta Overlay 架构**：`portfolio_tracker.py --beta-overlay` 模式。价格 > 周线 EMA200 时始终持有 50% 底仓（吃 Beta），LLM 给出 long 信号时额外叠加 20%（总 70%）。价格跌破 EMA200 则全部出场。解决纯 LLM 择时在牛市踩空的结构性问题。
 - **资产注册表集中管理**：所有资产的 ticker、分析脚本、输出文件路径统一在 `assets_config.py` 中注册，新增资产只需修改一处。
 
 ---
@@ -160,9 +160,13 @@ Stage 2 LLM 输出字段：`macro_themes`、`sector_ranking`、`top_opportunitie
 
 ---
 
-### 4. `portfolio_tracker.py` — 持仓跟踪（新）
+### 4. `portfolio_tracker.py` — 持仓跟踪 + Beta Overlay 模式
 
-读取 `portfolio.json`，结合实时价格和最新 LLM 信号，按以下优先级输出操作建议：
+两种运行模式：
+
+#### 模式A：传统持仓跟踪
+
+读取 `portfolio.json` 的 `positions` 段，按以下优先级输出操作建议：
 
 | 优先级 | 状态 | 触发条件 | 生成订单 |
 |--------|------|---------|---------|
@@ -177,6 +181,33 @@ python3 portfolio_tracker.py                         # 查看持仓状态
 python3 portfolio_tracker.py --update-signals        # 先刷新信号再评估
 python3 portfolio_tracker.py --export-orders         # 额外导出 orders.json
 ```
+
+#### 模式B：Beta Overlay（推荐）
+
+读取 `portfolio.json` 的 `beta_overlay_config` 段，实现 EMA200 底仓 + LLM 叠加：
+
+| 条件 | 目标仓位 | 动作 |
+|------|---------|------|
+| 价格 > EMA200 + LLM long（bias≥0.50） | **70%** | `ENTER_FULL` / `ADD_OVERLAY` |
+| 价格 > EMA200 + LLM no_trade | **50%** | `ENTER_BASE` / `REMOVE_OVERLAY` |
+| 价格 < EMA200 | **0%** | `EXIT_ALL` |
+| 偏差 ≤ 5% | 不变 | `HOLD` |
+
+```bash
+python3 portfolio_tracker.py --beta-overlay                          # 查看仓位建议
+python3 portfolio_tracker.py --beta-overlay --update-signals         # 先刷新 LLM 信号
+python3 portfolio_tracker.py --beta-overlay --update-signals --export-orders  # 额外导出 orders.json
+```
+
+`portfolio.json` 中的 `beta_overlay_config` 配置：
+```json
+"beta_overlay_config": {
+  "NVDA": {"allocated_capital": 50000, "current_shares": 0},
+  "MSFT": {"allocated_capital": 30000, "current_shares": 0},
+  "GOOGL": {"allocated_capital": 20000, "current_shares": 0}
+}
+```
+每次实际买卖后手动更新 `current_shares`。输出保存到 `overlay_status.json`。
 
 `orders.json` 字段（对齐 Binance API）：`side`、`quantity`、`order_type`、`price`、`note`
 
