@@ -74,4 +74,12 @@ else
     log "[错误] 飞书推送失败"
 fi
 
+# ── 信号持久化（追加到 live_signal_log.csv）──
+log "--- [7/7] 信号持久化 ---"
+if python3 signal_logger.py 2>&1 | tee -a "${LOG_FILE}"; then
+    log "信号持久化完成"
+else
+    log "[错误] 信号持久化失败（不影响分析）"
+fi
+
 log "===== 每日分析全部完成（黄金 + BTC + GOOGL + NVDA + AMZN）====="

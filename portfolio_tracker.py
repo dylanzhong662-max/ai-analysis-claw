@@ -63,11 +63,18 @@ def fetch_current_prices(asset_keys: list[str]) -> dict[str, float | None]:
         ticker = cfg["ticker"]
         try:
             df = yf.download(
-                ticker, period="2d", interval="1d",
+                ticker, period="5d", interval="1d",
                 auto_adjust=True, progress=False, session=session
             )
             if not df.empty:
-                price = float(df["Close"].iloc[-1])
+                # squeeze() 兼容 MultiIndex；dropna() 跳过当天盘中 NaN
+                close_series = df["Close"].squeeze()
+                valid = close_series.dropna()
+                if valid.empty:
+                    prices[key] = None
+                    print(f"  {key:12s} ({ticker:12s}): 无有效价格")
+                    continue
+                price = float(valid.iloc[-1])
                 prices[key] = round(price, 4)
                 print(f"  {key:12s} ({ticker:12s}): {price:.4f}")
             else:
@@ -337,29 +344,62 @@ def print_report(evaluations: list[dict]):
 
 
 # ─────────────────────────────────────────────
-# Beta Overlay 模式
+# Beta Overlay 模式 — 波动率目标制架构
 # ─────────────────────────────────────────────
 
-BETA_BASE_PCT    = 0.50   # EMA200 上方底仓比例
-LLM_OVERLAY_PCT  = 0.20   # LLM long 信号叠加比例（总 70%）
-REBAL_THRESHOLD  = 0.05   # 当前仓位偏离目标 >5% 才触发再平衡
+TARGET_ANNUAL_VOL   = 0.16   # 目标年化波动率 16%（仓位随波动率自动缩放）
+MAX_POSITION_PCT    = 0.80   # 硬性上限：不超过分配资金 80%
+VOL_FLOOR_PCT       = 0.30   # 动量修正下限：牛市制度（价格>EMA200且>EMA50）时，
+                             # 无论波动率多高，仓位不低于此值，防止高波动牛市严重欠配
+LLM_OVERLAY_PCT     = 0.10   # LLM 确认信号叠加（bias≥0.60 时额外 +10%）
+REBAL_THRESHOLD     = 0.05   # 当前仓位偏离目标 >5% 才触发再平衡
+VOL_LOOKBACK_WEEKS  = 20     # 实现波动率计算窗口（周）
+DRAWDOWN_EXIT_PCT   = 0.15   # 距近期52周高点回撤 >15% 触发快速出场
 
 
-def _calc_weekly_ema200(ticker_sym: str) -> float | None:
-    """获取周线 EMA200（用于 Beta 底仓判断）"""
+def _calc_regime_data(ticker_sym: str, asset_key: str) -> dict:
+    """
+    计算制度判断所需的全套数据：
+      - weekly EMA200（牛熊制度主过滤）
+      - weekly EMA50（快速出场信号，比 EMA200 快 4-6 周）
+      - 200WMA —— 200周简单移动均值（BTC 专用，经三轮牛熊验证）
+      - 近20周年化实现波动率（波动率目标制定仓核心）
+      - 近52周最高价（计算回撤用于快速出场）
+
+    返回 dict，键：ema200 / ema50 / wma200 / realized_vol_annual / high_52w
+    任何字段失败返回 None，调用方需做 None 检查。
+    """
     try:
         session = _make_session()
-        df = yf.download(ticker_sym, period="5y", interval="1wk",
+        df = yf.download(ticker_sym, period="6y", interval="1wk",
                          auto_adjust=True, progress=False, session=session)
-        if df.empty or len(df) < 50:
-            return None
+        if df.empty or len(df) < 52:
+            return {}
         closes = df["Close"].squeeze().dropna()
-        # 指数移动平均
-        ema = closes.ewm(span=200, adjust=False).mean()
-        return float(ema.iloc[-1])
+
+        ema200 = float(closes.ewm(span=200, adjust=False).mean().iloc[-1])
+        ema50  = float(closes.ewm(span=50,  adjust=False).mean().iloc[-1])
+
+        # BTC 专用：200WMA（简单移动均线，非 EMA）
+        wma200 = float(closes.rolling(200).mean().iloc[-1]) if len(closes) >= 200 else None
+
+        # 近20周年化实现波动率
+        weekly_rets = closes.pct_change().dropna().tail(VOL_LOOKBACK_WEEKS)
+        realized_vol_annual = float(weekly_rets.std() * (52 ** 0.5)) if len(weekly_rets) >= 4 else 0.20
+
+        # 近52周最高价（用于回撤判断）
+        high_52w = float(closes.tail(52).max())
+
+        return {
+            "ema200":              ema200,
+            "ema50":               ema50,
+            "wma200":              wma200,
+            "realized_vol_annual": realized_vol_annual,
+            "high_52w":            high_52w,
+        }
     except Exception as e:
-        print(f"  EMA200 计算失败 ({ticker_sym}): {e}")
-        return None
+        print(f"  制度数据计算失败 ({ticker_sym}): {e}")
+        return {}
 
 
 def _parse_llm_signal_for_ticker(asset_key: str) -> dict | None:
@@ -379,33 +419,62 @@ def evaluate_overlay(
     allocated_capital: float,     # 分配给这个 ticker 的总资金
 ) -> dict:
     """
-    Beta Overlay 单资产评估：
+    Beta Overlay 单资产评估 — 波动率目标制架构
 
-    目标仓位逻辑：
-      price > EMA200 + LLM long  → 70% (底仓 50% + 叠加 20%)
-      price > EMA200 + LLM other → 50% (纯底仓)
-      price < EMA200             → 0%  (全出)
+    仓位计算逻辑：
+      Step 1  制度过滤（出场优先于加仓）
+                价格 < 周线EMA200                    → 清仓（熊市制度）
+                BTC 额外：价格 < 200WMA（周线SMA200） → 清仓
+                价格 < 周线EMA50 OR 距52周高点回撤>15% → 快速出场
 
-    输出 target_pct / target_shares / delta_shares / action / order
+      Step 2  波动率目标制定仓（含动量修正下限）
+                vol_target  = TARGET_ANNUAL_VOL(16%) / realized_vol_annual
+                上限 MAX_POSITION_PCT(80%)
+                低波动牛市（vol=10%）→ 自动加至 80%
+                高波动市 （vol=40%）→ 自动降至 40%
+                动量修正：价格>EMA200 且 >EMA50（趋势上行） →
+                  target_pct = max(vol_target, VOL_FLOOR_PCT=30%)
+                  防止高波动牛市（如 NVDA 2019-2021）仓位过低而严重踏空
+
+      Step 3  LLM 叠加（辅助信号）
+                action=long AND bias≥0.60 → +LLM_OVERLAY_PCT(10%)
+                否则不叠加
+
+    输出新增字段：ema50 / above_ema50 / wma200 / realized_vol_annual /
+                 high_52w / drawdown_from_high / fast_exit_triggered /
+                 vol_target_pct / llm_overlay_pct
     """
     result = {
-        "asset":             asset_key,
-        "ticker":            ticker_sym,
-        "current_price":     current_price,
-        "current_shares":    current_shares,
-        "allocated_capital": allocated_capital,
-        "ema200":            None,
-        "above_ema200":      None,
-        "llm_action":        None,
-        "llm_bias":          None,
-        "target_pct":        0.0,
-        "target_shares":     0,
-        "current_pct":       0.0,
-        "delta_shares":      0,
-        "action":            "HOLD",
-        "reason":            "",
-        "order":             None,
-        "evaluated_at":      datetime.now().isoformat(timespec="seconds"),
+        "asset":                 asset_key,
+        "ticker":                ticker_sym,
+        "current_price":         current_price,
+        "current_shares":        current_shares,
+        "allocated_capital":     allocated_capital,
+        # 制度字段
+        "ema200":                None,
+        "ema50":                 None,
+        "wma200":                None,
+        "above_ema200":          None,
+        "above_ema50":           None,
+        "high_52w":              None,
+        "drawdown_from_high":    None,
+        "fast_exit_triggered":   False,
+        # 波动率字段
+        "realized_vol_annual":   None,
+        "vol_target_pct":        None,
+        # LLM 字段
+        "llm_action":            None,
+        "llm_bias":              None,
+        "llm_overlay_pct":       0.0,
+        # 仓位字段
+        "target_pct":            0.0,
+        "target_shares":         0,
+        "current_pct":           0.0,
+        "delta_shares":          0,
+        "action":                "HOLD",
+        "reason":                "",
+        "order":                 None,
+        "evaluated_at":          datetime.now().isoformat(timespec="seconds"),
     }
 
     if current_price is None or current_price <= 0:
@@ -416,78 +485,153 @@ def evaluate_overlay(
     current_value = current_shares * current_price
     result["current_pct"] = round(current_value / allocated_capital, 4) if allocated_capital > 0 else 0.0
 
-    # ── 1. EMA200 状态 ──
-    print(f"  [{asset_key}] 计算周线 EMA200...", end=" ", flush=True)
-    ema200 = _calc_weekly_ema200(ticker_sym)
-    result["ema200"] = round(ema200, 2) if ema200 else None
+    # ── 1. 计算制度数据 ──
+    print(f"  [{asset_key}] 计算制度数据（EMA50/200 + 波动率）...", end=" ", flush=True)
+    rd = _calc_regime_data(ticker_sym, asset_key)
+
+    ema200              = rd.get("ema200")
+    ema50               = rd.get("ema50")
+    wma200              = rd.get("wma200")
+    realized_vol        = rd.get("realized_vol_annual", 0.20)
+    high_52w            = rd.get("high_52w", current_price)
+
+    result["ema200"]             = round(ema200, 2)             if ema200    else None
+    result["ema50"]              = round(ema50,  2)             if ema50     else None
+    result["wma200"]             = round(wma200, 2)             if wma200    else None
+    result["realized_vol_annual"]= round(realized_vol, 4)
+    result["high_52w"]           = round(high_52w, 2)           if high_52w  else None
+
     above_ema200 = ema200 is not None and current_price > ema200
+    above_ema50  = ema50  is not None and current_price > ema50
     result["above_ema200"] = above_ema200
-    ema_str = f"{round(ema200,2):.2f}" if ema200 else "N/A"
-    print(f"EMA200={ema_str}  {chr(8593)+chr(19978)+chr(26041) if above_ema200 else chr(8595)+chr(19979)+chr(26041)}")
+    result["above_ema50"]  = above_ema50
 
-    # ── 2. LLM 信号 ──
-    sig = _parse_llm_signal_for_ticker(asset_key)
-    if sig:
-        result["llm_action"] = sig.get("action", "no_trade")
-        result["llm_bias"]   = sig.get("bias_score")
+    # 回撤计算
+    drawdown = (high_52w - current_price) / high_52w if high_52w and high_52w > 0 else 0.0
+    result["drawdown_from_high"] = round(drawdown, 4)
 
-    llm_long = (result["llm_action"] == "long" and
-                (result["llm_bias"] is None or float(result["llm_bias"]) >= 0.50))
+    # BTC 额外检查 200WMA
+    btc_wma_ok = True
+    if asset_key == "BTC" and wma200 is not None:
+        btc_wma_ok = current_price > wma200
 
-    # ── 3. 目标仓位 ──
-    if not above_ema200:
+    # 快速出场：EMA50 跌破 OR 回撤超限
+    fast_exit = (not above_ema50) or (drawdown > DRAWDOWN_EXIT_PCT)
+    result["fast_exit_triggered"] = fast_exit
+
+    vol_str = f"{realized_vol*100:.0f}%"
+    ema_str = f"EMA200={'↑' if above_ema200 else '↓'}{round(ema200,1) if ema200 else 'N/A'}"
+    ema50_str = f"EMA50={'↑' if above_ema50 else '↓'}{round(ema50,1) if ema50 else 'N/A'}"
+    dd_str  = f"回撤={drawdown*100:.1f}%"
+    print(f"{ema_str}  {ema50_str}  {dd_str}  vol={vol_str}")
+
+    # ── 2. 制度判断：是否出场 ──
+    bear_regime  = not above_ema200 or not btc_wma_ok
+    exit_reason  = ""
+
+    if bear_regime:
         target_pct = 0.0
-        _e = f'{ema200:.2f}' if ema200 else 'N/A'
-        ema_note   = f"价格{current_price:.2f} < EMA200({_e})，清空底仓"
-    elif llm_long:
-        target_pct = BETA_BASE_PCT + LLM_OVERLAY_PCT   # 70%
-        ema_note   = f"EMA200上方 + LLM long(bias={result['llm_bias']}) → 70%仓位"
+        parts = []
+        if not above_ema200:
+            parts.append(f"价格{current_price:.2f} < EMA200({round(ema200,2) if ema200 else 'N/A'})")
+        if not btc_wma_ok:
+            parts.append(f"BTC价格 < 200WMA({round(wma200,2)})")
+        exit_reason = "熊市制度 — " + " & ".join(parts)
+    elif fast_exit:
+        target_pct = 0.0
+        parts = []
+        if not above_ema50:
+            parts.append(f"价格{current_price:.2f} < EMA50({round(ema50,2) if ema50 else 'N/A'})（快速出场）")
+        if drawdown > DRAWDOWN_EXIT_PCT:
+            parts.append(f"距52周高点回撤{drawdown*100:.1f}% > {DRAWDOWN_EXIT_PCT*100:.0f}%触发")
+        exit_reason = " & ".join(parts)
     else:
-        target_pct = BETA_BASE_PCT                      # 50%
-        ema_note   = f"EMA200上方 + LLM {result['llm_action']} → 50%底仓"
+        # ── 3. 波动率目标制定仓（含动量修正下限）──
+        if realized_vol > 0:
+            vol_target_pct = TARGET_ANNUAL_VOL / realized_vol
+        else:
+            vol_target_pct = 0.50  # fallback
+        vol_target_pct = min(vol_target_pct, MAX_POSITION_PCT)
 
-    result["target_pct"]    = target_pct
-    target_value            = allocated_capital * target_pct
-    target_shares           = int(target_value / current_price) if current_price > 0 else 0
+        # 动量修正下限：牛市趋势中（价格>EMA200且>EMA50），仓位不低于 VOL_FLOOR_PCT
+        # 解决问题：高波动牛市（如 NVDA 2019-2021）vol目标制会把仓位压到10%，严重踏空
+        # 激活条件：不触发快速出场（above_ema50=True）且在牛市制度中
+        floor_active = above_ema50  # 仅在 EMA50 以上才激活（fast_exit时已在上面处理）
+        if floor_active and vol_target_pct < VOL_FLOOR_PCT:
+            vol_target_pct = VOL_FLOOR_PCT
+        result["vol_target_pct"]  = round(vol_target_pct, 4)
+        result["vol_floor_active"] = floor_active and (TARGET_ANNUAL_VOL / max(realized_vol, 0.001) < VOL_FLOOR_PCT)
+
+        # ── 4. LLM 叠加（辅助信号，+10%）──
+        sig = _parse_llm_signal_for_ticker(asset_key)
+        if sig:
+            result["llm_action"] = sig.get("action", "no_trade")
+            result["llm_bias"]   = sig.get("bias_score")
+
+        llm_long    = (result["llm_action"] == "long" and
+                       result["llm_bias"] is not None and
+                       float(result["llm_bias"]) >= 0.60)
+        llm_overlay = LLM_OVERLAY_PCT if llm_long else 0.0
+        result["llm_overlay_pct"] = llm_overlay
+
+        target_pct = min(vol_target_pct + llm_overlay, MAX_POSITION_PCT)
+
+    result["target_pct"] = round(target_pct, 4)
+    target_value          = allocated_capital * target_pct
+    target_shares         = int(target_value / current_price) if current_price > 0 else 0
     result["target_shares"] = target_shares
     delta                   = target_shares - int(current_shares)
     result["delta_shares"]  = delta
 
-    # ── 4. 决策 ──
+    # ── 5. 决策 & 生成订单 ──
     current_pct_val = result["current_pct"]
     pct_diff        = abs(target_pct - current_pct_val)
 
-    if pct_diff <= REBAL_THRESHOLD:
-        result["action"] = "HOLD"
-        result["reason"] = f"仓位偏差 {pct_diff*100:.1f}% ≤ 阈值 {REBAL_THRESHOLD*100:.0f}%，无需再平衡"
-    elif not above_ema200 and current_shares > 0:
-        result["action"] = "EXIT_ALL"
-        result["reason"] = ema_note
+    # 出场逻辑（bear_regime 或 fast_exit）
+    if (bear_regime or fast_exit) and current_shares > 0:
+        result["action"] = "EXIT_BEAR_REGIME" if bear_regime else "EXIT_FAST"
+        result["reason"] = exit_reason
         result["order"]  = {
             "side": "sell", "quantity": int(current_shares),
             "order_type": "market", "price": current_price,
-            "note": f"EXIT_ALL — {ema_note}",
+            "note": f"{result['action']} — {exit_reason}",
         }
+    elif (bear_regime or fast_exit) and current_shares == 0:
+        result["action"] = "HOLD"
+        result["reason"] = f"已空仓 — {exit_reason}"
+    elif pct_diff <= REBAL_THRESHOLD:
+        result["action"] = "HOLD"
+        vt = result["vol_target_pct"]
+        lo = result["llm_overlay_pct"]
+        result["reason"] = (
+            f"仓位偏差{pct_diff*100:.1f}%≤阈值{REBAL_THRESHOLD*100:.0f}%，无需再平衡  "
+            f"[vol目标={vt*100:.0f}% llm叠加={lo*100:.0f}% 目标={target_pct*100:.0f}%]"
+        )
     elif target_pct > current_pct_val:
-        if current_shares == 0:
-            result["action"] = "ENTER_BASE" if not llm_long else "ENTER_FULL"
-        else:
-            result["action"] = "ADD_OVERLAY" if llm_long else "REBALANCE_UP"
-        result["reason"] = ema_note
+        result["action"] = "ENTER" if current_shares == 0 else "REBALANCE_UP"
+        vt = result["vol_target_pct"]
+        lo = result["llm_overlay_pct"]
+        result["reason"] = (
+            f"vol目标制={vt*100:.0f}% + LLM叠加={lo*100:.0f}% → 目标{target_pct*100:.0f}%  "
+            f"vol={realized_vol*100:.0f}%"
+        )
         if delta > 0:
             result["order"] = {
                 "side": "buy", "quantity": delta,
                 "order_type": "market", "price": current_price,
-                "note": f"{result['action']} — {ema_note}",
+                "note": f"{result['action']} — {result['reason']}",
             }
     else:
-        result["action"] = "REMOVE_OVERLAY" if current_pct_val > BETA_BASE_PCT else "REBALANCE_DOWN"
-        result["reason"] = ema_note
+        result["action"] = "REBALANCE_DOWN"
+        result["reason"] = (
+            f"波动率上升/LLM信号减弱，目标仓位从{current_pct_val*100:.0f}%降至{target_pct*100:.0f}%  "
+            f"vol={realized_vol*100:.0f}%"
+        )
         if delta < 0:
             result["order"] = {
                 "side": "sell", "quantity": abs(delta),
                 "order_type": "market", "price": current_price,
-                "note": f"{result['action']} — {ema_note}",
+                "note": f"{result['action']} — {result['reason']}",
             }
 
     return result
@@ -495,18 +639,17 @@ def evaluate_overlay(
 
 def print_overlay_report(results: list[dict]):
     action_emoji = {
-        "HOLD":          "➖",
-        "ENTER_BASE":    "🟢",
-        "ENTER_FULL":    "🚀",
-        "ADD_OVERLAY":   "➕",
-        "REMOVE_OVERLAY":"➖",
-        "REBALANCE_UP":  "🔼",
-        "REBALANCE_DOWN":"🔽",
-        "EXIT_ALL":      "🔴",
+        "HOLD":              "➖",
+        "ENTER":             "🟢",
+        "REBALANCE_UP":      "🔼",
+        "REBALANCE_DOWN":    "🔽",
+        "EXIT_BEAR_REGIME":  "🔴",
+        "EXIT_FAST":         "🟠",
     }
     print("\n" + "=" * 70)
-    print(f"  Beta Overlay 仓位报告  |  {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    print(f"  底仓={BETA_BASE_PCT:.0%}(EMA200上方)  叠加={LLM_OVERLAY_PCT:.0%}(LLM long)  上限={BETA_BASE_PCT+LLM_OVERLAY_PCT:.0%}")
+    print(f"  Beta Overlay 仓位报告（波动率目标制）  |  {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print(f"  目标年化波动率={TARGET_ANNUAL_VOL:.0%}  LLM叠加={LLM_OVERLAY_PCT:.0%}(bias≥0.60)  上限={MAX_POSITION_PCT:.0%}")
+    print(f"  快速出场触发：EMA50跌破 OR 52周回撤>{DRAWDOWN_EXIT_PCT:.0%}")
     print("=" * 70)
 
     total_alloc  = sum(r["allocated_capital"] for r in results)
@@ -516,8 +659,19 @@ def print_overlay_report(results: list[dict]):
     for r in results:
         emoji = action_emoji.get(r["action"], "❓")
         cp    = r["current_price"] or 0
-        print(f"\n{emoji} {r['asset']:8s} ({r['ticker']:8s})  价格=${cp:.2f}  "
-              f"EMA200=${r['ema200'] or 0:.2f}  {'↑' if r['above_ema200'] else '↓'}")
+        vol   = r["realized_vol_annual"]
+        dd    = r["drawdown_from_high"]
+        vt    = r["vol_target_pct"]
+        lo    = r["llm_overlay_pct"]
+
+        print(f"\n{emoji} {r['asset']:8s} ({r['ticker']:8s})  价格=${cp:.2f}")
+        print(f"   制度: EMA200={'↑' if r['above_ema200'] else '↓'}${r['ema200'] or 0:.1f}  "
+              f"EMA50={'↑' if r['above_ema50'] else '↓'}${r['ema50'] or 0:.1f}  "
+              f"回撤={dd*100:.1f}% 快速出场={'是' if r['fast_exit_triggered'] else '否'}"
+              + (f"  200WMA=${r['wma200']:.1f}" if r.get("wma200") and r["asset"] == "BTC" else ""))
+        floor_tag = "  [动量下限激活✓]" if r.get("vol_floor_active") else ""
+        print(f"   波动率: 年化={vol*100:.0f}%  →  vol目标仓={vt*100:.0f}%{floor_tag} + LLM={lo*100:.0f}% = 目标{r['target_pct']*100:.0f}%"
+              if vt is not None else f"   目标仓位: {r['target_pct']*100:.0f}%（出场）")
         print(f"   LLM信号: {r['llm_action'] or 'N/A':12s}  bias={r['llm_bias'] or 'N/A'}")
         print(f"   当前: {r['current_shares']:.0f}股 ({r['current_pct']*100:.1f}%)  →  "
               f"目标: {r['target_shares']}股 ({r['target_pct']*100:.0f}%)  "
@@ -526,7 +680,7 @@ def print_overlay_report(results: list[dict]):
         if r["order"]:
             o = r["order"]
             val = o["quantity"] * cp
-            print(f"   📋 订单: {o['side'].upper()} {o['quantity']}股  ≈ ${val:,.0f}  ({o['order_type']})")
+            print(f"   订单: {o['side'].upper()} {o['quantity']}股  ≈ ${val:,.0f}  ({o['order_type']})")
 
     print("\n" + "-" * 70)
     print(f"  总分配资金: ${total_alloc:,.0f}  |  当前市值: ${total_cur:,.0f}  |  目标市值: ${total_target:,.0f}")
@@ -600,12 +754,17 @@ def run_beta_overlay_mode(args):
 
     # 保存状态
     out = {
-        "mode": "beta_overlay",
+        "mode": "beta_overlay_vol_target",
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "config": {
-            "beta_base_pct":   BETA_BASE_PCT,
-            "llm_overlay_pct": LLM_OVERLAY_PCT,
-            "rebal_threshold": REBAL_THRESHOLD,
+            "target_annual_vol":   TARGET_ANNUAL_VOL,
+            "max_position_pct":    MAX_POSITION_PCT,
+            "vol_floor_pct":       VOL_FLOOR_PCT,
+            "llm_overlay_pct":     LLM_OVERLAY_PCT,
+            "llm_bias_threshold":  0.60,
+            "rebal_threshold":     REBAL_THRESHOLD,
+            "drawdown_exit_pct":   DRAWDOWN_EXIT_PCT,
+            "vol_lookback_weeks":  VOL_LOOKBACK_WEEKS,
         },
         "positions": results,
         "orders": [r["order"] for r in results if r["order"]],
@@ -645,7 +804,7 @@ def main():
     )
     parser.add_argument(
         "--beta-overlay", action="store_true",
-        help="Beta Overlay 模式：底仓50pct(EMA200上方)+LLM叠加20pct，替代纯信号择时"
+        help="Beta Overlay 模式（波动率目标制）：vol_target=16pct/实现波动率 + LLM叠加10pct(bias>=0.60)，EMA50或15pct回撤触发快速出场"
     )
     parser.add_argument(
         "--second-model", default="claude-sonnet-4-6",

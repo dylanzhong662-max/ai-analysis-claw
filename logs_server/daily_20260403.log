@@ -1,0 +1,35 @@
+[00:00:01] ===== 每日金融分析开始 =====
+[00:00:01] --- [1/5] 黄金分析 ---
+Traceback (most recent call last):
+  File "/opt/finance-analysis/gold_analysis.py", line 9, in <module>
+    import yfinance as yf
+ModuleNotFoundError: No module named 'yfinance'
+[00:00:01] [错误] 黄金分析失败，继续下一步
+[00:00:01] --- [2/3] BTC 分析 ---
+Traceback (most recent call last):
+  File "/opt/finance-analysis/btc_analysis.py", line 25, in <module>
+    import yfinance as yf
+ModuleNotFoundError: No module named 'yfinance'
+[00:00:01] [错误] BTC 分析失败，继续下一步
+[00:00:01] --- [3/5] GOOGL 分析 ---
+Traceback (most recent call last):
+  File "/opt/finance-analysis/tech_stock_analysis.py", line 15, in <module>
+    import yfinance as yf
+ModuleNotFoundError: No module named 'yfinance'
+[00:00:02] [错误] GOOGL 分析失败，继续下一步
+[00:00:02] --- [4/5] NVDA 分析 ---
+Traceback (most recent call last):
+  File "/opt/finance-analysis/tech_stock_analysis.py", line 15, in <module>
+    import yfinance as yf
+ModuleNotFoundError: No module named 'yfinance'
+[00:00:02] [错误] NVDA 分析失败，继续下一步
+[00:00:02] --- [5/5 前] AMZN 分析 ---
+Traceback (most recent call last):
+  File "/opt/finance-analysis/tech_stock_analysis.py", line 15, in <module>
+    import yfinance as yf
+ModuleNotFoundError: No module named 'yfinance'
+[00:00:02] [错误] AMZN 分析失败，继续下一步
+[00:00:02] --- [6/6] 飞书推送 ---
+飞书消息发送成功
+[00:00:04] 飞书推送完成
+[00:00:04] ===== 每日分析全部完成（黄金 + BTC + GOOGL + NVDA + AMZN）=====

@@ -1,0 +1,2 @@
+﻿entry_date,exit_date,signal_date,action,entry_price,exit_price,stop,target,exit_reason,quantity,pnl_pct,win,hold_days,bias_score,regime,portfolio_value
+2025-01-03,2025-01-08,2025-01-02,long,140.1041,139.9241,109.85,200.61,END_OF_BACKTEST,99,-0.1285,False,4,0.6,Trending-Up,99954.45

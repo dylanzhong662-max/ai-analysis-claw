@@ -24,6 +24,12 @@ from openai import OpenAI
 from curl_cffi import requests as curl_requests
 from datetime import datetime
 
+try:
+    from news_signal_bridge import fetch_news_signals, format_news_signals_section
+    _NEWS_BRIDGE_AVAILABLE = True
+except ImportError:
+    _NEWS_BRIDGE_AVAILABLE = False
+
 
 # ─────────────────────────────────────────────
 # API 配置
@@ -174,19 +180,19 @@ def describe_macd(ind: dict, tf_label: str = "周线") -> str:
         return f"{tf_label}MACD: N/A"
     m, s   = float(macd.iloc[-1]), float(sig.iloc[-1])
     m_p, s_p = float(macd.iloc[-2]), float(sig.iloc[-2])
-    if   m > s and m_p <= s_p: cross = "刚形成金叉"
-    elif m < s and m_p >= s_p: cross = "刚形成死叉"
-    elif m > s:                cross = "金叉持续"
-    else:                      cross = "死叉持续"
+    if   m > s and m_p <= s_p: cross = "Newly Golden Cross"
+    elif m < s and m_p >= s_p: cross = "Newly Death Cross"
+    elif m > s:                cross = "Golden Cross ongoing"
+    else:                      cross = "Death Cross ongoing"
     h_vals = hist.iloc[-3:].tolist() if len(hist) >= 3 else []
     if len(h_vals) == 3:
-        if   h_vals[2] > h_vals[1] > h_vals[0]: hist_t = "柱状图连扩（动能增强）"
-        elif h_vals[2] < h_vals[1] < h_vals[0]: hist_t = "柱状图连缩（动能减弱）"
-        elif h_vals[2] > 0:                      hist_t = f"柱状图为正({h_vals[2]:.2f})"
-        else:                                    hist_t = f"柱状图为负({h_vals[2]:.2f})"
+        if   h_vals[2] > h_vals[1] > h_vals[0]: hist_t = "histogram expanding (momentum strengthening)"
+        elif h_vals[2] < h_vals[1] < h_vals[0]: hist_t = "histogram contracting (momentum weakening)"
+        elif h_vals[2] > 0:                      hist_t = f"histogram positive ({h_vals[2]:.2f})"
+        else:                                    hist_t = f"histogram negative ({h_vals[2]:.2f})"
     else:
         hist_t = ""
-    return f"{tf_label}MACD {cross}（MACD={m:.2f}, Signal={s:.2f}）；{hist_t}"
+    return f"{tf_label} MACD {cross} (MACD={m:.2f}, Signal={s:.2f}); {hist_t}"
 
 
 def describe_rsi(ind: dict, tf_label: str = "周线") -> str:
@@ -194,26 +200,26 @@ def describe_rsi(ind: dict, tf_label: str = "周线") -> str:
     rsi14 = ind['rsi14'].dropna()
     rsi7  = ind['rsi7'].dropna()
     if rsi14.empty:
-        return f"{tf_label}RSI: N/A"
+        return f"{tf_label} RSI: N/A"
     r = float(rsi14.iloc[-1])
-    if   r > 70: level = f"超买区({r:.0f})"
-    elif r < 30: level = f"超卖区({r:.0f})"
-    elif r > 55: level = f"偏强({r:.0f})"
-    elif r < 45: level = f"偏弱({r:.0f})"
-    else:        level = f"中性({r:.0f})"
+    if   r > 70: level = f"overbought ({r:.0f})"
+    elif r < 30: level = f"oversold ({r:.0f})"
+    elif r > 55: level = f"firm ({r:.0f})"
+    elif r < 45: level = f"weak ({r:.0f})"
+    else:        level = f"neutral ({r:.0f})"
     trend = ""
     if len(rsi14) >= 4:
         r_p = float(rsi14.iloc[-4])
-        if   r > 50 and r_p < 50: trend = "，穿越50中轴↑"
-        elif r < 50 and r_p > 50: trend = "，跌破50中轴↓"
-        elif r > r_p + 8:         trend = "，快速回升"
-        elif r < r_p - 8:         trend = "，快速下落"
+        if   r > 50 and r_p < 50: trend = ", crossed 50 midline ↑"
+        elif r < 50 and r_p > 50: trend = ", broke below 50 midline ↓"
+        elif r > r_p + 8:         trend = ", rapid recovery"
+        elif r < r_p - 8:         trend = ", rapid decline"
     r7_note = ""
     if not rsi7.empty:
         r7 = float(rsi7.iloc[-1])
-        if   r7 > 80: r7_note = f"；RSI-7={r7:.0f} 极度超买（追高风险高）"
-        elif r7 < 20: r7_note = f"；RSI-7={r7:.0f} 极度超卖（反弹动能积累）"
-    return f"{tf_label}RSI-14={level}{trend}{r7_note}"
+        if   r7 > 80: r7_note = f"; RSI-7={r7:.0f} extremely overbought (chasing-high risk)"
+        elif r7 < 20: r7_note = f"; RSI-7={r7:.0f} extremely oversold (bounce momentum building)"
+    return f"{tf_label} RSI-14={level}{trend}{r7_note}"
 
 
 def describe_bb(ind: dict, tf_label: str = "周线") -> str:
@@ -223,20 +229,20 @@ def describe_bb(ind: dict, tf_label: str = "周线") -> str:
     if pctb_s.empty:
         return f"{tf_label}BB: N/A"
     pctb = float(pctb_s.iloc[-1])
-    if   pctb > 1.0: pos = "突破上轨（强势，小心回撤）"
-    elif pctb > 0.7: pos = "靠近上轨（偏强）"
-    elif pctb > 0.4: pos = "中轨上方（中性偏多）"
-    elif pctb > 0.1: pos = "中轨下方（中性偏空）"
-    elif pctb >= 0:  pos = "靠近下轨（偏弱）"
-    else:            pos = "跌破下轨（超卖反弹关注区）"
+    if   pctb > 1.0: pos = "above upper band (strong, watch for pullback)"
+    elif pctb > 0.7: pos = "near upper band (bullish bias)"
+    elif pctb > 0.4: pos = "above midline (neutral bullish)"
+    elif pctb > 0.1: pos = "below midline (neutral bearish)"
+    elif pctb >= 0:  pos = "near lower band (weak)"
+    else:            pos = "below lower band (oversold — watch for bounce)"
     bw_note = ""
     if len(bw_s) >= 26:
         history = bw_s.tail(52).tolist() if len(bw_s) >= 52 else bw_s.tolist()
         curr_bw = float(bw_s.iloc[-1])
         pct = sum(1 for x in history if x <= curr_bw) / len(history) * 100
-        if   pct < 20: bw_note = f"；带宽处于历史{pct:.0f}%分位（高度收缩，突破蓄势）"
-        elif pct > 80: bw_note = f"；带宽处于历史{pct:.0f}%分位（高度扩张，趋势强劲）"
-    return f"{tf_label}BB %B={pctb:.2f}，{pos}{bw_note}"
+        if   pct < 20: bw_note = f"; bandwidth at {pct:.0f}th percentile (highly compressed — breakout setup)"
+        elif pct > 80: bw_note = f"; bandwidth at {pct:.0f}th percentile (highly expanded — strong trend)"
+    return f"{tf_label} BB %B={pctb:.2f}, {pos}{bw_note}"
 
 
 def describe_price_vs_ema(close: pd.Series, ind: dict, tf_label: str = "周线") -> str:
@@ -251,7 +257,7 @@ def describe_price_vs_ema(close: pd.Series, ind: dict, tf_label: str = "周线")
             v   = float(ema_s.iloc[-1])
             pct = (price - v) / v * 100
             parts.append(f"EMA{period}({'↑' if price > v else '↓'}{abs(pct):.1f}%)")
-    return (f"{tf_label}价格={price:.2f}；" + "，".join(parts)) if parts else f"{tf_label}N/A"
+    return (f"{tf_label} price={price:.2f}; " + ", ".join(parts)) if parts else f"{tf_label} N/A"
 
 
 # ─────────────────────────────────────────────
@@ -556,6 +562,73 @@ def fetch_intelligence_data(ticker: str) -> dict:
 
 
 # ─────────────────────────────────────────────
+# 新闻情绪获取（实盘用，回测不可用）
+# ─────────────────────────────────────────────
+
+def fetch_recent_news(ticker: str, max_items: int = 8) -> list[dict]:
+    """
+    获取近期新闻标题（yfinance .news），用于注入实盘分析提示词。
+
+    注意：yfinance.news 返回的是当前最新新闻，仅适合实盘分析。
+    回测中禁止使用（会造成未来信息泄漏）。
+
+    返回列表，每项含：
+      - title: 标题
+      - publisher: 来源
+      - link: URL
+      - published: 发布时间（Unix 时间戳转 ISO 字符串）
+    """
+    try:
+        t = yf.Ticker(ticker, session=_make_session())
+        raw = t.news
+        if not raw:
+            print(f"  [新闻] {ticker}: 未获取到新闻")
+            return []
+
+        items = []
+        for n in raw[:max_items]:
+            # yfinance news 结构：{"title", "publisher", "link", "providerPublishTime", ...}
+            published_ts = n.get("providerPublishTime", 0)
+            try:
+                published_str = pd.Timestamp(published_ts, unit="s").strftime("%Y-%m-%d %H:%M")
+            except Exception:
+                published_str = "unknown"
+            items.append({
+                "title":     n.get("title", ""),
+                "publisher": n.get("publisher", ""),
+                "link":      n.get("link", ""),
+                "published": published_str,
+            })
+        print(f"  [新闻] {ticker}: 获取 {len(items)} 条近期新闻")
+        return items
+    except Exception as e:
+        print(f"  [新闻] {ticker} 获取失败: {e}")
+        return []
+
+
+def _format_news_section(news_items: list[dict]) -> str:
+    """将新闻列表格式化为 Markdown，注入到提示词中。"""
+    if not news_items:
+        return ""
+    lines = [
+        "",
+        "## 近期新闻与市场情绪（实时，仅作背景参考）",
+        "",
+        "以下为近期主要新闻标题，供 LLM 判断市场情绪叙事。",
+        "**注意：这些是已公开的新闻事件，不代表未来走势。**",
+        "",
+    ]
+    for i, n in enumerate(news_items, 1):
+        lines.append(f"{i}. **[{n['published']}]** {n['title']}  _(来源: {n['publisher']})_")
+    lines.append("")
+    lines.append("> **情绪评估提示**: 请根据上述新闻判断当前市场叙事是否支持或对冲你的技术信号。"
+                 "若新闻与技术信号方向一致，可小幅提升 bias_score（≤+0.05）；"
+                 "若重大负面事件（监管/诉讼/业绩预警），须降低 bias_score 或输出 no_trade。")
+    lines.append("")
+    return "\n".join(lines)
+
+
+# ─────────────────────────────────────────────
 # 同业对标数据
 # ─────────────────────────────────────────────
 
@@ -666,7 +739,7 @@ def compute_relative_strength(stock_df: pd.DataFrame, bench_df: pd.DataFrame, pe
         return {
             "rs_vs_qqq_pct": rs_last,
             "rs_trend_6w":   rs_trend,
-            "signal":        "跑赢QQQ" if rs_last > 0 else "跑输QQQ",
+            "signal":        "Outperforming QQQ" if rs_last > 0 else "Underperforming QQQ",
         }
     except Exception:
         return {"rs_vs_qqq_pct": None, "rs_trend_6w": [], "signal": "N/A"}
@@ -688,7 +761,7 @@ def summarize_macro_equity(macro: dict) -> dict:
         if len(vals) < 2:
             return "N/A"
         chg = (vals[-1] - vals[0]) / abs(vals[0]) * 100 if vals[0] != 0 else 0
-        return f"{'↑' if chg > 0 else '↓'} {abs(chg):.1f}% (近8周)"
+        return f"{'↑' if chg > 0 else '↓'} {abs(chg):.1f}% (8W)"
 
     def _ema_cross_status(df, fast=20, slow=50):
         if df.empty or 'Close' not in df.columns:
@@ -698,7 +771,7 @@ def summarize_macro_equity(macro: dict) -> dict:
             return "N/A"
         ema_f = calc_ema(close, fast).iloc[-1]
         ema_s = calc_ema(close, slow).iloc[-1]
-        return "金叉(多头)" if ema_f > ema_s else "死叉(空头)"
+        return "Golden Cross (bullish)" if ema_f > ema_s else "Death Cross (bearish)"
 
     # QQQ
     qqq = macro.get("qqq", pd.DataFrame())
@@ -718,7 +791,7 @@ def summarize_macro_equity(macro: dict) -> dict:
         xlk_ret = (xlk_closes[-1] / xlk_closes[-n] - 1) * 100
         qqq_ret = (qqq_closes[-1] / qqq_closes[-n] - 1) * 100
         result["xlk_vs_qqq_pct"] = round(xlk_ret - qqq_ret, 2)
-        result["sector_rotation"] = "科技板块领涨" if xlk_ret > qqq_ret else "科技板块落后"
+        result["sector_rotation"] = "Tech Sector Leading" if xlk_ret > qqq_ret else "Tech Sector Lagging"
     else:
         result["xlk_vs_qqq_pct"] = None
         result["sector_rotation"] = "N/A"
@@ -744,10 +817,10 @@ def summarize_macro_equity(macro: dict) -> dict:
     if result["vix_last"]:
         v = result["vix_last"]
         result["vix_regime"] = (
-            "极度恐慌(>35)" if v > 35 else
-            ("恐慌(>25)"    if v > 25 else
-            ("高波动(>20)"  if v > 20 else
-            ("中性(>15)"    if v > 15 else "低波动/乐观(<15)")))
+            "Extreme Fear (>35)" if v > 35 else
+            ("Fear (>25)"        if v > 25 else
+            ("High Vol (>20)"    if v > 20 else
+            ("Neutral (>15)"     if v > 15 else "Low Vol / Risk-On (<15)")))
         )
 
     # DXY
@@ -768,142 +841,142 @@ def format_intelligence_section(intel: dict, current_price: float) -> str:
         val = intel.get(key)
         return str(val) if val is not None else default
 
-    # 分析师目标价上行空间
+    # Analyst price target upside
     pt_upside_str = ""
     if intel.get("analyst_target_mean") and current_price:
         upside = (intel["analyst_target_mean"] - current_price) / current_price * 100
-        pt_upside_str = f"  (**较当前价上行空间: {upside:+.1f}%**)"
+        pt_upside_str = f"  (**{upside:+.1f}% upside to current price**)"
 
-    # 财报风险提示
+    # Earnings risk alert
     days = intel.get("earnings_days_away")
     if days is not None and days >= 0:
         if days <= 5:
-            earnings_alert = f"\n> **⚠️ 财报风险警告：距下次财报仅 {days} 天，强制 no_trade**"
+            earnings_alert = f"\n> **⚠️ EARNINGS RISK: {days} days to earnings ({_v('earnings_date')}) — force no_trade**"
         elif days <= 15:
-            earnings_alert = f"\n> **注意：距下次财报 {days} 天，建议降低仓位**"
+            earnings_alert = f"\n> **NOTE: {days} days to earnings — reduce position size**"
         else:
-            earnings_alert = f"\n> 距下次财报：约 {days} 天（{_v('earnings_date')}）"
+            earnings_alert = f"\n> Next earnings: ~{days} days ({_v('earnings_date')})"
     else:
         earnings_alert = ""
 
-    # Forward P/E 解读
+    # Forward P/E interpretation
     fpe = intel.get("forward_pe")
     fpe_interp = "N/A"
     if isinstance(fpe, (int, float)):
-        fpe_interp = "偏高，估值有压力" if fpe > 35 else ("合理偏高" if fpe > 25 else "合理区间")
+        fpe_interp = "Elevated, valuation pressure" if fpe > 35 else ("Slightly elevated" if fpe > 25 else "Reasonable")
 
-    # PEG 解读
+    # PEG interpretation
     peg = intel.get("peg_ratio")
     peg_interp = "N/A"
     if isinstance(peg, (int, float)):
-        peg_interp = "估值偏贵 (>2)" if peg > 2 else ("合理 (1–2)" if peg > 1 else "低估 (<1)")
+        peg_interp = "Expensive (>2)" if peg > 2 else ("Fair (1–2)" if peg > 1 else "Undervalued (<1)")
 
-    # Beta 解读
+    # Beta interpretation
     beta = intel.get("beta")
     beta_interp = "N/A"
     if isinstance(beta, (int, float)):
-        beta_interp = "高波动性，止损需宽" if beta > 1.3 else ("中等波动" if beta > 0.8 else "低波动")
+        beta_interp = "High volatility — wider stops needed" if beta > 1.3 else ("Moderate volatility" if beta > 0.8 else "Low volatility")
 
-    # 空头回补解读
+    # Short ratio interpretation
     sr = intel.get("short_ratio")
     sr_interp = "N/A"
     if isinstance(sr, (int, float)):
-        sr_interp = "空头拥挤，潜在轧空行情" if sr > 5 else ("空头中等" if sr > 2 else "空头较少")
+        sr_interp = "Short-heavy — potential squeeze" if sr > 5 else ("Moderate short interest" if sr > 2 else "Low short interest")
 
     section = f"""
 ---
 
-## 三、情报分析 (Intelligence Analysis)
+## III. Intelligence Analysis
 
-### 3.1 财报与盈利预估
+### 3.1 Earnings & Estimates
 {earnings_alert}
 
-| 指标 | 数值 |
-|------|------|
-| 下次财报日期 | {_v('earnings_date')} |
-| 距财报天数 | {_v('earnings_days_away')} 天 |
-| 本季度 EPS 预估 (均值) | ${_v('eps_estimate_current_q')} |
-| 下季度 EPS 预估 (均值) | ${_v('eps_estimate_next_q')} |
-| 全年 EPS 预估 (均值) | ${_v('eps_estimate_current_y')} |
-| 全年 EPS 预期增速 | {_v('eps_growth_estimate')}% |
-| 全年营收预估 | ${_v('revenue_estimate_current_y')}B |
-| 营收预期增速 | {_v('revenue_growth_estimate')}% |
+| Metric | Value |
+|--------|-------|
+| Next Earnings Date | {_v('earnings_date')} |
+| Days to Earnings | {_v('earnings_days_away')} |
+| Current Q EPS Estimate | ${_v('eps_estimate_current_q')} |
+| Next Q EPS Estimate | ${_v('eps_estimate_next_q')} |
+| Full Year EPS Estimate | ${_v('eps_estimate_current_y')} |
+| Full Year EPS Growth | {_v('eps_growth_estimate')}% |
+| Full Year Revenue Estimate | ${_v('revenue_estimate_current_y')}B |
+| Revenue Growth Estimate | {_v('revenue_growth_estimate')}% |
 
-### 3.2 分析师共识
+### 3.2 Analyst Consensus
 
-| 指标 | 数值 |
-|------|------|
-| 综合评级 | {_v('analyst_recommendation')} |
-| 平均目标价 | ${_v('analyst_target_mean')}{pt_upside_str} |
-| 目标价区间 | ${_v('analyst_target_low')} – ${_v('analyst_target_high')} |
-| 强烈买入 / 买入 / 持有 / 卖出 | {_v('analyst_strong_buy')} / {_v('analyst_buy')} / {_v('analyst_hold')} / {_v('analyst_sell')} |
+| Metric | Value |
+|--------|-------|
+| Consensus Rating | {_v('analyst_recommendation')} |
+| Mean Price Target | ${_v('analyst_target_mean')}{pt_upside_str} |
+| PT Range | ${_v('analyst_target_low')} – ${_v('analyst_target_high')} |
+| Strong Buy / Buy / Hold / Sell | {_v('analyst_strong_buy')} / {_v('analyst_buy')} / {_v('analyst_hold')} / {_v('analyst_sell')} |
 
-### 3.3 估值与财务质量
+### 3.3 Valuation & Financial Quality
 
-| 指标 | 数值 | 解读 |
-|------|------|------|
-| 市值 | {_v('market_cap')} | — |
-| 远期市盈率 (Forward P/E) | {_v('forward_pe')} | {fpe_interp} |
-| PEG 比率 | {_v('peg_ratio')} | {peg_interp} |
-| 市净率 (P/B) | {_v('price_to_book')} | — |
-| 营收增长 (YoY) | {_v('revenue_growth')} | — |
-| 盈利增长 (YoY) | {_v('earnings_growth')} | — |
-| 毛利率 | {_v('gross_margins')} | — |
-| 运营利润率 | {_v('operating_margins')} | — |
-| 净利润率 | {_v('profit_margins')} | — |
-| 股本回报率 (ROE) | {_v('return_on_equity')} | — |
-| 自由现金流 | {_v('free_cashflow')} | — |
-| 债务权益比 | {_v('debt_to_equity')} | — |
+| Metric | Value | Interpretation |
+|--------|-------|----------------|
+| Market Cap | {_v('market_cap')} | — |
+| Forward P/E | {_v('forward_pe')} | {fpe_interp} |
+| PEG Ratio | {_v('peg_ratio')} | {peg_interp} |
+| Price/Book | {_v('price_to_book')} | — |
+| Revenue Growth (YoY) | {_v('revenue_growth')} | — |
+| Earnings Growth (YoY) | {_v('earnings_growth')} | — |
+| Gross Margin | {_v('gross_margins')} | — |
+| Operating Margin | {_v('operating_margins')} | — |
+| Net Margin | {_v('profit_margins')} | — |
+| ROE | {_v('return_on_equity')} | — |
+| Free Cash Flow | {_v('free_cashflow')} | — |
+| Debt/Equity | {_v('debt_to_equity')} | — |
 | Beta | {_v('beta')} | {beta_interp} |
-| 空头回补天数 | {_v('short_ratio')} 天 | {sr_interp} |
-| 机构持股比例 | {_v('institutional_ownership')} | — |
-| 52周高点 | ${_v('52w_high')} | — |
-| 52周低点 | ${_v('52w_low')} | — |
+| Short Ratio | {_v('short_ratio')} days | {sr_interp} |
+| Institutional Ownership | {_v('institutional_ownership')} | — |
+| 52W High | ${_v('52w_high')} | — |
+| 52W Low | ${_v('52w_low')} | — |
 
-### 3.4 盈利惊喜历史（最近4季 EPS 实际 vs 预估）
+### 3.4 Earnings Surprise History (Last 4 Quarters)
 """
 
-    # 盈利惊喜历史
+    # Earnings surprise history
     surprises = intel.get("eps_surprise_history", [])
     beat_count = intel.get("eps_beat_count")
     if surprises:
         surprise_cells = " | ".join(
             f"{'✅' if s > 0 else '❌'} {s:+.1f}%" for s in surprises
         )
-        beat_label = f"{beat_count}/{len(surprises)} 季超预期" if beat_count is not None else "N/A"
+        beat_label = f"{beat_count}/{len(surprises)} beats" if beat_count is not None else "N/A"
         surprise_trend = (
-            "连续超预期，盈利质量高" if beat_count == len(surprises)
-            else ("多数超预期" if beat_count and beat_count >= len(surprises) * 0.75
-            else ("多数不及预期，注意盈利压力" if beat_count is not None and beat_count < len(surprises) * 0.5
-            else "超预期表现一般"))
+            "Consistent beats — high earnings quality" if beat_count == len(surprises)
+            else ("Majority beats" if beat_count and beat_count >= len(surprises) * 0.75
+            else ("Mostly misses — watch for earnings pressure" if beat_count is not None and beat_count < len(surprises) * 0.5
+            else "Mixed beat/miss history"))
         )
         section += f"""
-| 指标 | Q-3 | Q-2 | Q-1 | 最近季 | 综合 |
-|------|-----|-----|-----|--------|------|
-| EPS 惊喜% | {surprise_cells} | {beat_label} |
+| Metric | Q-3 | Q-2 | Q-1 | Latest Q | Summary |
+|--------|-----|-----|-----|----------|---------|
+| EPS Surprise% | {surprise_cells} | {beat_label} |
 
-> **解读**: {surprise_trend}
+> **Interpretation**: {surprise_trend}
 """
     else:
-        section += "\n> 盈利惊喜数据暂不可用\n"
+        section += "\n> Earnings surprise data unavailable\n"
 
-    # 季度营收趋势
+    # Quarterly revenue trend
     rev_trend = intel.get("quarterly_revenue_trend", [])
     rev_accel = intel.get("revenue_acceleration")
-    section += "\n### 3.5 季度营收趋势（最近5季，单位 $B）\n"
+    section += "\n### 3.5 Quarterly Revenue Trend (Last 5 Quarters, $B)\n"
     if rev_trend:
         rev_str = " → ".join(f"${v}B" for v in rev_trend)
         accel_str = ""
         if rev_accel is not None:
             if rev_accel > 1:
-                accel_str = f"  ✅ **营收加速** (环比增速提升 {rev_accel:+.1f}pp)"
+                accel_str = f"  ✅ **Revenue accelerating** (QoQ growth up {rev_accel:+.1f}pp)"
             elif rev_accel < -1:
-                accel_str = f"  ⚠️ **营收减速** (环比增速下降 {rev_accel:.1f}pp)"
+                accel_str = f"  ⚠️ **Revenue decelerating** (QoQ growth down {rev_accel:.1f}pp)"
             else:
-                accel_str = f"  营收增速平稳 ({rev_accel:+.1f}pp)"
+                accel_str = f"  Revenue growth stable ({rev_accel:+.1f}pp)"
         section += f"\n{rev_str}{accel_str}\n"
     else:
-        section += "\n> 季度营收数据暂不可用\n"
+        section += "\n> Quarterly revenue data unavailable\n"
 
     return section.strip()
 
@@ -921,6 +994,8 @@ def build_prompt_equity(
     intel: dict,
     perf_metrics: dict | None = None,
     peer_data: dict | None = None,
+    news_items: list | None = None,
+    news_context: dict | None = None,
 ) -> str:
 
     # ── 指标计算 ──
@@ -958,9 +1033,9 @@ def build_prompt_equity(
     m_macd   = _safe_last(m_ind['macd'])
     m_rsi14  = _safe_last(m_ind['rsi14'])
 
-    # OBV 趋势（周线，近6期）
+    # OBV trend (weekly, last 6 bars)
     obv_s = w_ind['obv'].dropna().tail(6).tolist()
-    obv_trend = "上升" if len(obv_s) >= 2 and obv_s[-1] > obv_s[0] else "下降"
+    obv_trend = "Rising" if len(obv_s) >= 2 and obv_s[-1] > obv_s[0] else "Falling"
 
     # 相对强弱 vs QQQ
     rs_data = compute_relative_strength(weekly, macro.get("qqq", pd.DataFrame()), period=20)
@@ -976,12 +1051,12 @@ def build_prompt_equity(
     pct_from_low  = round((current_price - low_52w)  / low_52w  * 100, 1)
 
     # ── 形态描述（替代原始数字序列，LLM 对文本形态感知力远强于浮点数组）──
-    w_price_desc    = describe_price_vs_ema(close_w, w_ind, "周线")
-    w_macd_desc     = describe_macd(w_ind, "周线")
-    w_rsi_desc      = describe_rsi(w_ind, "周线")
-    w_bb_desc       = describe_bb(w_ind, "周线")
-    m_macd_desc     = describe_macd(m_ind, "月线")
-    m_rsi_desc      = describe_rsi(m_ind, "月线")
+    w_price_desc    = describe_price_vs_ema(close_w, w_ind, "Weekly")
+    w_macd_desc     = describe_macd(w_ind, "Weekly")
+    w_rsi_desc      = describe_rsi(w_ind, "Weekly")
+    w_bb_desc       = describe_bb(w_ind, "Weekly")
+    m_macd_desc     = describe_macd(m_ind, "Monthly")
+    m_rsi_desc      = describe_rsi(m_ind, "Monthly")
 
     # 预计算入场锚点（基于周线 ATR，中长线适用）
     atr = w_atr14 or 1.0
@@ -1007,19 +1082,19 @@ def build_prompt_equity(
             price = data.get("current_price")
             vs_str = f"{vs:+.1f}%" if vs is not None else "N/A"
             ret_str = f"{ret:+.1f}%" if ret is not None else "N/A"
-            signal = "领先" if vs and vs > 0 else "落后"
+            signal = "Leading" if vs and vs > 0 else "Lagging"
             peer_rows.append(f"| {peer} | ${price} | {ret_str} | {vs_str} | {signal} |")
         peer_table = "\n".join(peer_rows)
         peer_section = f"""
 ---
 
-## 四、同业对标分析（近8周表现）
+## IV. Peer Comparison (Last 8 Weeks)
 
-| 对标股 | 当前价 | 8周涨跌 | vs QQQ 超额 | 信号 |
-|--------|--------|---------|------------|------|
+| Peer | Current Price | 8W Return | vs QQQ Excess | Signal |
+|------|--------------|-----------|---------------|--------|
 {peer_table}
 
-> **解读方向**：若同业整体跑输 QQQ，说明该细分赛道（广告/云/AI）面临结构性压力；若 {ticker} 跑输同业，说明个股层面存在相对弱势，需谨慎。
+> **Interpretation**: If peers broadly underperform QQQ, the sub-sector (ads/cloud/AI) faces structural headwinds. If {ticker} underperforms peers, there is stock-level relative weakness — be cautious.
 """
 
     # 股票专属行业背景（静态 prompt engineering，给模型提供行业分析框架）
@@ -1145,23 +1220,23 @@ def build_prompt_equity(
         cl  = perf_metrics.get("consecutive_losses", 0)
         warns = []
         if wrf is not None and wrf < 0.40:
-            warns.append("⚠️ 胜率低于40%：bias_score 门槛强制提升至 ≥0.65")
+            warns.append("⚠️ Win rate below 40%: bias_score threshold raised to ≥0.65")
         if cl >= 2:
-            warns.append(f"⚠️ 已连续亏损 {cl} 次：需 bias_score ≥0.75 才入场")
-        warn_str = "\n".join(warns) if warns else "当前表现正常，维持标准决策流程。"
+            warns.append(f"⚠️ {cl} consecutive losses: require bias_score ≥0.75 to enter")
+        warn_str = "\n".join(warns) if warns else "Current performance normal — maintain standard decision process."
         perf_section = f"""
 ---
 
-## 近期回测表现反馈
+## Recent Backtest Performance Feedback
 
-| 指标 | 数值 |
-|------|------|
-| 胜率 | {perf_metrics.get('win_rate', 'N/A')} |
-| 平均盈利 | {perf_metrics.get('avg_win', 'N/A')} |
-| 平均亏损 | {perf_metrics.get('avg_loss', 'N/A')} |
-| 盈利因子 | {perf_metrics.get('profit_factor', 'N/A')} |
-| 总收益 | {perf_metrics.get('total_return', 'N/A')} |
-| 最近连续亏损 | {cl} 次 |
+| Metric | Value |
+|--------|-------|
+| Win Rate | {perf_metrics.get('win_rate', 'N/A')} |
+| Avg Win | {perf_metrics.get('avg_win', 'N/A')} |
+| Avg Loss | {perf_metrics.get('avg_loss', 'N/A')} |
+| Profit Factor | {perf_metrics.get('profit_factor', 'N/A')} |
+| Total Return | {perf_metrics.get('total_return', 'N/A')} |
+| Consecutive Losses | {cl} |
 
 {warn_str}
 """
@@ -1170,251 +1245,126 @@ def build_prompt_equity(
         return f"{val}{suffix}" if val is not None else "N/A"
 
     ema_cross_status = (
-        "金叉 (EMA50 > EMA200，多头结构)" if w_ema50 and w_ema200 and w_ema50 > w_ema200
-        else "死叉 (EMA50 < EMA200，空头结构)" if w_ema50 and w_ema200
+        "Golden Cross (EMA50 > EMA200, bullish structure)" if w_ema50 and w_ema200 and w_ema50 > w_ema200
+        else "Death Cross (EMA50 < EMA200, bearish structure)" if w_ema50 and w_ema200
         else "N/A"
     )
     ema20_bias = (
-        "价格高于EMA20，短期偏多" if w_ema20 and current_price > w_ema20
-        else "价格低于EMA20，短期偏空" if w_ema20
+        "Price above EMA20, short-term bullish" if w_ema20 and current_price > w_ema20
+        else "Price below EMA20, short-term bearish" if w_ema20
         else "N/A"
     )
     ema50_bias = (
-        "价格高于EMA50，中期偏多" if w_ema50 and current_price > w_ema50
-        else "价格低于EMA50，中期偏空" if w_ema50
+        "Price above EMA50, medium-term bullish" if w_ema50 and current_price > w_ema50
+        else "Price below EMA50, medium-term bearish" if w_ema50
         else "N/A"
     )
     ema200_bias = (
-        "价格高于EMA200，长期牛市" if w_ema200 and current_price > w_ema200
-        else "价格低于EMA200，长期熊市" if w_ema200
+        "Price above EMA200, long-term bull structure" if w_ema200 and current_price > w_ema200
+        else "Price below EMA200, long-term bear structure" if w_ema200
         else "N/A"
     )
 
     today_str = datetime.now().strftime("%Y-%m-%d")
 
-    prompt = f"""
-# {ticker} 纳斯达克科技股中长线分析请求
+    prompt = f"""# {ticker} — Weekly Analysis Request
 
-**分析日期**: {today_str}
-**持仓目标周期**: 1–6 个月（中长线，减少交易频率，持仓让利润奔跑）
-**主分析时间框架**: 周线 (W1) + 月线 (M1) 趋势，日线辅助入场精确定时
+**Analysis Date**: {today_str}
+**Target Hold Period**: 4–26 weeks (medium-to-long term swing)
+**Primary Timeframe**: Weekly (W1) + Monthly (M1) background; Daily for entry timing only
 {perf_section}
 ---
 
-## 一、行情分析 (Price Action Analysis)
+## I. Price Action Analysis
 
-### 1.1 价格概要
+### 1.1 Price Overview
 
-- **当前价格**: ${current_price}
-- **52周高点**: ${high_52w}  |  距高点: {pct_from_high:+.1f}%
-- **52周低点**: ${low_52w}   |  距低点: {pct_from_low:+.1f}%
+- **Current Price**: ${current_price}
+- **52-Week High**: ${high_52w}  |  Distance from high: {pct_from_high:+.1f}%
+- **52-Week Low**: ${low_52w}   |  Distance from low: {pct_from_low:+.1f}%
 
-### 1.2 周线关键指标快照
+### 1.2 Weekly Key Indicator Snapshot
 
-| 指标 | 当前值 | 信号解读 |
-|------|--------|----------|
-| EMA-20 (周) | {_v(w_ema20)} | {ema20_bias} |
-| EMA-50 (周) | {_v(w_ema50)} | {ema50_bias} |
-| EMA-200 (周) | {_v(w_ema200)} | {ema200_bias} |
-| EMA 金/死叉 (50/200周) | {ema_cross_status} | 长期趋势方向判断 |
-| MACD (周) | {_v(w_macd)} | {'正值，多头动能' if w_macd and w_macd > 0 else '负值，空头动能'} |
-| RSI-14 (周) | {_v(w_rsi14)} | {'超买区 >70，谨慎追多' if w_rsi14 and w_rsi14 > 70 else ('超卖区 <30，关注反弹' if w_rsi14 and w_rsi14 < 30 else '中性区间 30–70')} |
-| RSI-7 (周) | {_v(w_rsi7)} | {'极度超买 >80' if w_rsi7 and w_rsi7 > 80 else ('极度超卖 <20' if w_rsi7 and w_rsi7 < 20 else '正常范围')} |
-| ADX (周) | {_v(w_adx)} | {'强趋势 >25' if w_adx and w_adx > 25 else ('弱趋势/振荡 <20' if w_adx and w_adx < 20 else '趋势形成中 20–25')} |
-| +DI / -DI | {_v(w_pdi)} / {_v(w_mdi)} | {'+DI>-DI 多头主导' if w_pdi and w_mdi and w_pdi > w_mdi else '-DI>+DI 空头主导'} |
-| Stochastic %K / %D | {_v(stoch_k)} / {_v(stoch_d)} | {'超买死叉，谨慎做多' if stoch_k and stoch_d and stoch_k > 80 and stoch_k < stoch_d else ('超卖金叉，关注做多' if stoch_k and stoch_d and stoch_k < 20 and stoch_k > stoch_d else '中性区间')} |
-| BB %B (周) | {_v(w_bb_pctb)} | {'突破上轨 >1' if w_bb_pctb and w_bb_pctb > 1 else ('跌破下轨 <0' if w_bb_pctb and w_bb_pctb < 0 else '布林带内运行')} |
-| BB 带宽 % | {_v(w_bb_bw)} | {'带宽扩张，趋势加速' if w_bb_bw and w_bb_bw > 10 else '带宽收缩，蓄势'} |
-| ROC-20 (周) | {_v(w_roc20, '%')} | {'正动量' if w_roc20 and w_roc20 > 0 else '负动量'} |
-| OBV 趋势 (近6周) | {obv_trend} | {'量价配合，机构积累' if obv_trend == '上升' else '量价背离，机构派发'} |
-| 相对强弱 vs QQQ (20周) | {_v(rs_data.get('rs_vs_qqq_pct'), '%')} | {rs_data.get('signal', 'N/A')} |
+| Indicator | Current | Signal |
+|-----------|---------|--------|
+| EMA-20 (W) | {_v(w_ema20)} | {ema20_bias} |
+| EMA-50 (W) | {_v(w_ema50)} | {ema50_bias} |
+| EMA-200 (W) | {_v(w_ema200)} | {ema200_bias} |
+| EMA Cross (50/200 W) | {ema_cross_status} | Long-term trend direction |
+| MACD (W) | {_v(w_macd)} | {'Positive — bullish momentum' if w_macd and w_macd > 0 else 'Negative — bearish momentum'} |
+| RSI-14 (W) | {_v(w_rsi14)} | {'Overbought >70, caution on longs' if w_rsi14 and w_rsi14 > 70 else ('Oversold <30, watch for bounce' if w_rsi14 and w_rsi14 < 30 else 'Neutral 30–70')} |
+| RSI-7 (W) | {_v(w_rsi7)} | {'Extremely overbought >80' if w_rsi7 and w_rsi7 > 80 else ('Extremely oversold <20' if w_rsi7 and w_rsi7 < 20 else 'Normal range')} |
+| ADX (W) | {_v(w_adx)} | {'Strong trend >25' if w_adx and w_adx > 25 else ('Weak/choppy <20' if w_adx and w_adx < 20 else 'Trend forming 20–25')} |
+| +DI / -DI | {_v(w_pdi)} / {_v(w_mdi)} | {'+DI > -DI: bulls in control' if w_pdi and w_mdi and w_pdi > w_mdi else '-DI > +DI: bears in control'} |
+| Stochastic %K / %D | {_v(stoch_k)} / {_v(stoch_d)} | {'Overbought death cross — caution' if stoch_k and stoch_d and stoch_k > 80 and stoch_k < stoch_d else ('Oversold golden cross — watch long' if stoch_k and stoch_d and stoch_k < 20 and stoch_k > stoch_d else 'Neutral zone')} |
+| BB %B (W) | {_v(w_bb_pctb)} | {'Above upper band >1' if w_bb_pctb and w_bb_pctb > 1 else ('Below lower band <0' if w_bb_pctb and w_bb_pctb < 0 else 'Inside Bollinger Bands')} |
+| BB Bandwidth % | {_v(w_bb_bw)} | {'Expanding — trend accelerating' if w_bb_bw and w_bb_bw > 10 else 'Contracting — squeeze setup'} |
+| ROC-20 (W) | {_v(w_roc20, '%')} | {'Positive momentum' if w_roc20 and w_roc20 > 0 else 'Negative momentum'} |
+| OBV Trend (Last 6W) | {obv_trend} | {'Volume/price aligned — institutional accumulation' if obv_trend == 'Rising' else 'Volume/price divergence — institutional distribution'} |
+| Relative Strength vs QQQ (20W) | {_v(rs_data.get('rs_vs_qqq_pct'), '%')} | {rs_data.get('signal', 'N/A')} |
 
-### 1.3 月线长期趋势背景
+### 1.3 Monthly Long-Term Background
 
-| 指标 | 当前值 | 解读 |
-|------|--------|------|
-| EMA-20 (月) | {_v(m_ema20)} | {'价格高于月线EMA20，长期趋势向上' if m_ema20 and current_price > m_ema20 else '价格低于月线EMA20，长期趋势向下'} |
-| MACD (月) | {_v(m_macd)} | {'月线多头动能' if m_macd and m_macd > 0 else '月线空头动能'} |
-| RSI-14 (月) | {_v(m_rsi14)} | {'月线超买，长期注意顶部风险' if m_rsi14 and m_rsi14 > 70 else ('月线超卖，长期关注底部机会' if m_rsi14 and m_rsi14 < 30 else '月线中性')} |
+| Indicator | Current | Interpretation |
+|-----------|---------|----------------|
+| EMA-20 (M) | {_v(m_ema20)} | {'Price above monthly EMA20 — long-term uptrend' if m_ema20 and current_price > m_ema20 else 'Price below monthly EMA20 — long-term downtrend'} |
+| MACD (M) | {_v(m_macd)} | {'Monthly bullish momentum' if m_macd and m_macd > 0 else 'Monthly bearish momentum'} |
+| RSI-14 (M) | {_v(m_rsi14)} | {'Monthly overbought — watch for long-term top' if m_rsi14 and m_rsi14 > 70 else ('Monthly oversold — watch for long-term bottom' if m_rsi14 and m_rsi14 < 30 else 'Monthly neutral')} |
 
-### 1.4 动量形态描述（Python 预处理，供判断方向和强度参考）
+### 1.4 Momentum Patterns (Pre-processed descriptions)
 
-**周线形态**：
+**Weekly Patterns**:
 - {w_price_desc}
 - {w_macd_desc}
 - {w_rsi_desc}
 - {w_bb_desc}
 
-**月线形态（仅背景参考，权重 ≤ ±0.05）**：
+**Monthly Background (weight ≤ ±0.05)**:
 - {m_macd_desc}
 - {m_rsi_desc}
 
 ---
 
-## 二、结构化分析 (Structured Analysis)
+## II. Structured Analysis
 
-### 2.1 五层市场层级评估
+### 2.1 Five-Level Market Hierarchy
 
-| 层级 | 维度 | 当前状态 | 方向 |
-|------|------|----------|------|
-| L1 宏观 | Fed政策 + 10Y收益率 | {_v(ms.get('tnx_last'), '%')}  趋势: {ms.get('tnx_trend', 'N/A')} | 收益率{'上升→成长股承压' if ms.get('tnx_trend','').startswith('↑') else '下降→成长股受益'} |
-| L2 指数 | QQQ 趋势 | {_v(ms.get('qqq_last'))}  趋势: {ms.get('qqq_trend', 'N/A')}  EMA: {ms.get('qqq_cross', 'N/A')} | {'多头' if ms.get('qqq_cross','').startswith('金') else '空头'} |
-| L3 板块 | XLK vs QQQ | XLK超额: {_v(ms.get('xlk_vs_qqq_pct'), '%')}  {ms.get('sector_rotation', 'N/A')} | {'有利' if ms.get('xlk_vs_qqq_pct') and ms['xlk_vs_qqq_pct'] > 0 else '不利'} |
-| L4 个股 | {ticker} vs QQQ (20周) | 超额收益: {_v(rs_data.get('rs_vs_qqq_pct'), '%')}  {rs_data.get('signal', 'N/A')} | {'有利' if rs_data.get('rs_vs_qqq_pct') and rs_data['rs_vs_qqq_pct'] > 0 else '不利'} |
-| L5 技术 | 入场时机 | 基于上方指标综合评判 | 待模型判断 |
+| Level | Dimension | Current State | Direction |
+|-------|-----------|---------------|-----------|
+| L1 Macro | Fed Policy + 10Y Yield | {_v(ms.get('tnx_last'), '%')}  Trend: {ms.get('tnx_trend', 'N/A')} | Yield {'rising → growth compression' if ms.get('tnx_trend','').startswith('↑') else 'falling → growth tailwind'} |
+| L2 Index | QQQ Trend | {_v(ms.get('qqq_last'))}  Trend: {ms.get('qqq_trend', 'N/A')}  EMA: {ms.get('qqq_cross', 'N/A')} | {'Bullish' if ms.get('qqq_cross','').startswith('Golden') else 'Bearish'} |
+| L3 Sector | XLK vs QQQ | XLK excess: {_v(ms.get('xlk_vs_qqq_pct'), '%')}  {ms.get('sector_rotation', 'N/A')} | {'Favorable' if ms.get('xlk_vs_qqq_pct') and ms['xlk_vs_qqq_pct'] > 0 else 'Unfavorable'} |
+| L4 Stock | {ticker} vs QQQ (20W) | Excess return: {_v(rs_data.get('rs_vs_qqq_pct'), '%')}  {rs_data.get('signal', 'N/A')} | {'Favorable' if rs_data.get('rs_vs_qqq_pct') and rs_data['rs_vs_qqq_pct'] > 0 else 'Unfavorable'} |
+| L5 Technical | Entry Timing | See indicators above | Model to assess |
 
-### 2.2 基准走势（近8周）
+### 2.2 Benchmark Trend (Last 8 Weeks)
 
-QQQ 周收盘序列: {ms.get('qqq_series', [])}
-SPY 趋势: {ms.get('spy_trend', 'N/A')}  |  QQQ趋势: {ms.get('qqq_trend', 'N/A')}
+QQQ Weekly Close Series: {ms.get('qqq_series', [])}
+SPY Trend: {ms.get('spy_trend', 'N/A')}  |  QQQ Trend: {ms.get('qqq_trend', 'N/A')}
 
-### 2.3 市场情绪
+### 2.3 Market Sentiment
 
-VIX: {_v(ms.get('vix_last'))}  |  状态: {ms.get('vix_regime', 'N/A')}  |  趋势: {ms.get('vix_trend', 'N/A')}
-DXY: {_v(ms.get('dxy_last'))}  |  趋势: {ms.get('dxy_trend', 'N/A')}
+VIX: {_v(ms.get('vix_last'))}  |  Regime: {ms.get('vix_regime', 'N/A')}  |  Trend: {ms.get('vix_trend', 'N/A')}
+DXY: {_v(ms.get('dxy_last'))}  |  Trend: {ms.get('dxy_trend', 'N/A')}
 
 {intel_section}
 {peer_section}
 {industry_section}
+{format_news_signals_section(news_context) if news_context else (_format_news_section(news_items) if news_items else "")}
+---
+
+## Precomputed Entry Anchors (Weekly ATR-14 = {_v(w_atr14)})
+
+> Stops at 2.5×wATR; target at 5×wATR (RR=2.0). Entry within ±0.5×wATR of current price.
+
+| Direction | Entry Zone | Stop Loss (2.5×wATR) | Profit Target (5×wATR, RR=2.0) | Est. Hold |
+|-----------|-----------|---------------------|-------------------------------|-----------|
+| Long  | {long_entry_lo} – {long_entry_hi} | {long_stop} | {long_target} | 4–26W |
+| Short | {short_entry_lo} – {short_entry_hi} | {short_stop} | {short_target} | 4–26W |
 
 ---
 
-## 五、预计算入场锚点（基于周线 ATR-14 = {_v(w_atr14)}）
-
-> 中长线持仓止损和目标均基于**周线 ATR**，给价格充分的波动空间（目标持仓 4–26 周）。
-> entry_zone 必须在此范围内；可在 ±0.5×wATR 范围内根据支撑/阻力微调。
-
-| 方向 | entry_zone | stop_loss (2.5×wATR) | profit_target (5×wATR, RR=2.0) | 预计持仓 |
-|------|-----------|--------------------|---------------------------------|---------|
-| 做多 | {long_entry_lo} – {long_entry_hi} | {long_stop} | {long_target} | 4–26 周 |
-| 做空 | {short_entry_lo} – {short_entry_hi} | {short_stop} | {short_target} | 4–26 周 |
-
----
-
-## 五B、仓位管理（position_size_pct）
-
-请在 JSON 中输出 `position_size_pct`（0.0–1.0），表示建议使用总资金的比例：
-
-| 条件 | 建议仓位 |
-|------|---------|
-| bias_score 0.50–0.59，Consolidation 制度 | 0.1–0.2（轻仓试探） |
-| bias_score 0.60–0.69，Trending 制度 | 0.3–0.5（标准仓） |
-| bias_score 0.70–0.79，多层共振+基本面支撑 | 0.5–0.7（加重仓） |
-| bias_score ≥ 0.80，趋势强劲+盈利加速 | 0.7–1.0（满仓） |
-| 周线 RSI-7 > 75 追高入场 | 上限 0.3（无论 bias 多高）|
-| 财报前 6–15 天 | 上限 0.3（降低财报二元风险敞口）|
-
----
-
-## 六、分析任务
-
-请基于以上三个维度的数据，按照**纳斯达克科技股中长线分析框架**完成分析，严格按以下 JSON 格式输出：
-
-```json
-{{
-  "period": "Weekly",
-  "stock_ticker": "{ticker}",
-  "overall_market_sentiment": "Risk-On | Risk-Off | Neutral",
-  "qqq_assessment": "<QQQ趋势及其对{ticker}的方向性影响>",
-  "sector_assessment": "<XLK板块轮动信号，利好还是利空科技股>",
-  "macro_rate_environment": "<10Y收益率趋势和Fed政策偏向对成长股估值的影响>",
-  "earnings_risk_flag": true | false,
-  "earnings_days_away": <整数 或 null>,
-  "asset_analysis": [
-    {{
-      "asset": "{ticker}",
-      "regime": "Trending-Up | Trending-Down | Post-Earnings Trending | Mean-Reverting | Pre-Earnings Choppy | Consolidation",
-      "action": "long | short | no_trade",
-      "bias_score": <0.0–1.0>,
-      "entry_zone": "<价格区间，基于预计算锚点>",
-      "profit_target": <数字 或 null>,
-      "stop_loss": <数字 或 null>,
-      "risk_reward_ratio": <数字 或 null>,
-      "invalidation_condition": "<使该观点失效的具体市场信号>",
-      "estimated_holding_weeks": <预计持仓周数 4–26>,
-      "position_size_pct": <建议仓位占比 0.0–1.0，no_trade 时填 0.0>,
-
-      "price_action_analysis": {{
-        "trend_structure": "<EMA对齐情况，金叉/死叉状态，月线MACD方向>",
-        "momentum_signals": "<MACD、RSI、Stochastic综合描述>",
-        "volatility_context": "<ATR、BB%B、带宽>",
-        "volume_obv": "<OBV趋势，量价配合还是背离>",
-        "relative_strength_vs_qqq": "<跑赢或跑输QQQ，幅度，近6周趋势>"
-      }},
-
-      "structured_analysis": {{
-        "market_hierarchy_alignment": "<L1–L5五层对齐情况：全部对齐/X层冲突>",
-        "earnings_cycle_phase": "<财报周期阶段，距下次财报天数>",
-        "sector_rotation_signal": "<XLK vs QQQ，对本股利好还是利空>",
-        "regime_justification": "<判断当前制度的核心依据>"
-      }},
-
-      "intelligence_analysis": {{
-        "earnings_estimate_trend": "<EPS预估修正方向（上调/下调/持平），对bias_score影响>",
-        "analyst_consensus": "<综合评级、目标价上行空间、近期有无重大评级变化>",
-        "valuation_context": "<Forward P/E是否合理、PEG是否偏高、营收增速是否加速/放缓>",
-        "macro_catalyst": "<当前驱动该股中长线行情的核心宏观/行业逻辑>",
-        "competitive_intelligence": "<AI周期机会、市场份额变化、监管风险、中国敞口等>"
-      }},
-
-      "justification": "<不超过300字的三维综合判断>"
-    }}
-  ]
-}}
-```
-
-**硬性约束（违反任意一条 → 强制输出 no_trade）**：
-- `earnings_days_away ≤ 5` → 财报二元风险，强制 no_trade
-- **个股周线死叉 + 价格低于 EMA200**（EMA50 < EMA200 且 price < EMA200）→ 确认下跌趋势，禁止做多（Python 层已前置拦截，LLM 不会被调用）
-- **个股周线死叉 + 价格高于或等于 EMA200**（EMA50 < EMA200 但 price ≥ EMA200）→ 修复行情（EMA 滞后的"回声"），允许做多但 bias_score ≤ 0.60，制度分类为 **Trending-Recovery**
-- 做空需同时满足：QQQ EMA50 < EMA200 **且** VIX > 25 **且** 股价低于周线 EMA-200；三者缺一禁止做空
-- `risk_reward_ratio < 2.0` → 盈亏比不足
-- 止损距离 entry < 2.0×周ATR（{_v(w_atr14)}）= {round(2.0*atr, 2) if w_atr14 else 'N/A'} → 止损太紧（中长线持仓须给价格足够波动空间）
-
-**信号质量过滤规则（全部适用）**：
-
-*Trending-Up 动能延续规则（正向信号，不过度保守）*
-- 个股处于 Trending-Up（价格 > EMA50 > EMA200）且 QQQ EMA50 > EMA200 → bias_score 0.55–0.75 是合理范围，不要因为"RSI偏高"或"涨幅已大"而过度压低 bias；牛市中保守偏低的 bias 等于放弃 Alpha
-- Trending-Up 回调到 EMA20 附近（价格距 EMA20 ≤ 2%）→ 高概率买点，bias_score 可提高 0.05
-- Trending-Recovery（回调 ≥20% 后反弹 ≥15% 且 MACD 改善）→ bias_score 0.55–0.65，这是科技股最高 Alpha 入场时机
-
-*技术面规则*
-- L1–L5 五层全部对齐同方向 → bias_score 允许 > 0.65
-- 有 1 层冲突 → bias_score 上限 0.60
-- 有 2 层及以上冲突 → bias_score 上限 0.50（建议 no_trade）
-- 周线 MACD ({_v(w_macd)}) < 0 且 Trending 制度 → 禁止做多，评估做空
-- 周线 RSI-7 ({_v(w_rsi7)}) > 75 → **仅 Mean-Reverting/Consolidation 制度**时做多 bias_score 上限 0.55；Trending-Up 制度下 RSI>75 为动能延续信号，不强制限制 bias_score，但须降低仓位（position_size_pct ≤ 0.3 以防追高）
-- 价格偏离周线 EMA-20 ({_v(w_ema20)}) 超过 5%，且制度非 Trending-Up → bias_score 上限 0.55（**Trending-Up 制度完全豁免**：牛市中价格持续跑在 EMA-20 上方是动量钝化的正常现象，不是反转信号）
-- ADX ({_v(w_adx)}) < 20 → 制度降级为 Consolidation，bias_score 上限 0.45
-- OBV 与价格方向背离 → bias_score 降低 0.10
-- VIX > 25 → 所有做多 bias_score -0.05；VIX > 35 → 默认 no_trade
-- **QQQ 死叉（EMA50 < EMA200）** → 做多 bias_score 上限 0.55，position_size_pct 上限 0.2（软限制，不禁止做多；个股若强于大盘仍可入场，但须轻仓）
-
-*基本面规则*
-- EPS 预估上调 ≥ 2%（`eps_growth_estimate` 提升）→ 做多 bias_score +0.05
-- EPS 连续4季超预期（beat_count = 4/4）→ 做多 bias_score +0.05（高质量盈利）
-- EPS 连续2季以上不及预期 → 做多 bias_score -0.10（盈利质量恶化）
-- 季度营收加速（`revenue_acceleration` > 1pp）→ 做多 bias_score +0.05
-- 季度营收减速（`revenue_acceleration` < -2pp）→ 做多 bias_score -0.08
-- 分析师平均目标价上行空间 < 5% → 做多 bias_score 上限 0.55（没有上行催化剂）
-- 分析师平均目标价上行空间 > 20% → 做多 bias_score 可额外 +0.03
-
-*Trending-Up 估值豁免（防止估值洁癖踏空牛市）*
-- 个股处于 Trending-Up（price > EMA50 > EMA200）且 XLK ≥ QQQ → Forward P/E 偏高（>35）、PEG > 2 等估值警告**权重清零**，不影响 bias_score；科技股牛市的超额收益来自估值扩张（Multiple Expansion），大模型不应因为"估值贵"就输出 no_trade
-- 上述豁免**不取消止损纪律**，只取消"估值高→降分"的惩罚；动量优先于估值
-- Trending-Up 下 RSI-7 > 75 为动能延续信号（重申）：不惩罚 bias_score，但限制仓位 ≤ 0.3 防追高
-
-*财报窗口规则*
-- `earnings_days_away ≤ 5` → 财报二元风险，强制 no_trade（已在硬性约束中）
-- `earnings_days_away` 6–15 天 → bias_score 上限 0.55，降低仓位（财报前不确定性高）
-- `earnings_days_away` 16–30 天 → bias_score 上限 0.65（中等财报风险窗口）
-- `bias_score < 0.50` → 一律 no_trade
-
-**中长线持仓特别提示**：
-- 止损设置在 2×周ATR 以外，给价格足够呼吸空间，避免被短期波动洗出
-- 目标在 4×周ATR（即 RR=2.0），但若基本面持续改善可考虑跟踪止损以延长持仓
-- 财报周期内个股可能大幅波动，但中长线视角下单次财报不是决策核心，除非出现趋势反转信号
-- 每次分析频率建议每 2–4 周一次，避免过度频繁操作
+Analyze the market data above and return a valid JSON signal following the format defined in your system instructions.
 """
     return prompt.strip()
 
@@ -1466,10 +1416,33 @@ def extract_asset_signal(parsed: dict, asset: str) -> dict | None:
 
 
 # ─────────────────────────────────────────────
+# System prompt loader
+# ─────────────────────────────────────────────
+
+def _load_system_prompt() -> str:
+    """Load 纳斯达克科技股分析.markdown as the system prompt for equity analysis."""
+    candidates = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "纳斯达克科技股分析.markdown"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "纳斯达克科技股分析.md"),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    content = f.read().strip()
+                print(f"  [System Prompt] Loaded from {os.path.basename(path)} ({len(content)} chars)")
+                return content
+            except Exception as e:
+                print(f"  [System Prompt] Failed to load {path}: {e}")
+    print("  [System Prompt] markdown file not found — system prompt will be empty")
+    return ""
+
+
+# ─────────────────────────────────────────────
 # API 调用
 # ─────────────────────────────────────────────
 
-def call_claude_api(prompt: str) -> str:
+def call_claude_api(prompt: str, system_prompt: str = "") -> str:
     if not _check_platform_quota():
         return ""
     import time
@@ -1481,11 +1454,14 @@ def call_claude_api(prompt: str) -> str:
     )
     for attempt in range(3):
         try:
-            message = client.messages.create(
+            kwargs = dict(
                 model=ANTHROPIC_MODEL,
                 max_tokens=8096,
                 messages=[{"role": "user", "content": prompt}],
             )
+            if system_prompt:
+                kwargs["system"] = system_prompt
+            message = client.messages.create(**kwargs)
             result = ""
             for block in message.content:
                 if hasattr(block, "text"):
@@ -1500,16 +1476,20 @@ def call_claude_api(prompt: str) -> str:
                 raise
 
 
-def call_deepseek_api(prompt: str, model: str) -> str:
+def call_deepseek_api(prompt: str, model: str, system_prompt: str = "") -> str:
     import re, time
     print(f"\n正在调用 DeepSeek API（模型: {model}）...")
     client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
     for attempt in range(3):
         try:
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
             response = client.chat.completions.create(
                 model=model,
                 max_tokens=8000,
-                messages=[{"role": "user", "content": prompt}],
+                messages=messages,
             )
             raw = response.choices[0].message.content or ""
             raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
@@ -1521,7 +1501,7 @@ def call_deepseek_api(prompt: str, model: str) -> str:
     return ""
 
 
-def call_openai_api(prompt: str, model: str) -> str:
+def call_openai_api(prompt: str, model: str, system_prompt: str = "") -> str:
     """通过聚合平台调用 GPT 系列模型（与 Claude 共用同一 API Key）"""
     if not _check_platform_quota():
         return ""
@@ -1530,10 +1510,14 @@ def call_openai_api(prompt: str, model: str) -> str:
     client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
     for attempt in range(3):
         try:
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
             response = client.chat.completions.create(
                 model=model,
                 max_tokens=4000,
-                messages=[{"role": "user", "content": prompt}],
+                messages=messages,
             )
             return response.choices[0].message.content or ""
         except Exception as e:
@@ -1543,14 +1527,14 @@ def call_openai_api(prompt: str, model: str) -> str:
     return ""
 
 
-def _call_any_model(prompt: str, model: str) -> str:
+def _call_any_model(prompt: str, model: str, system_prompt: str = "") -> str:
     """统一模型路由"""
     if model in DEEPSEEK_MODELS:
-        return call_deepseek_api(prompt, model)
+        return call_deepseek_api(prompt, model, system_prompt=system_prompt)
     elif model in OPENAI_MODELS:
-        return call_openai_api(prompt, model)
+        return call_openai_api(prompt, model, system_prompt=system_prompt)
     else:
-        return call_claude_api(prompt)
+        return call_claude_api(prompt, system_prompt=system_prompt)
 
 
 def _force_no_trade(parsed: dict, raw_resp: str, asset_name: str, reason: str) -> str:
@@ -1575,6 +1559,7 @@ def call_dual_model_api(
     screener_model: str = "deepseek-reasoner",
     confirm_model: str = None,
     bias_threshold: float = 0.55,
+    system_prompt: str = "",
 ) -> str:
     """双模型交叉验证：初筛 + 确认，方向分歧时强制 no_trade"""
     import json as _json
@@ -1583,7 +1568,7 @@ def call_dual_model_api(
         confirm_model = ANTHROPIC_MODEL
 
     print(f"\n[双模型] Step 1 初筛 ({screener_model})...")
-    screener_resp   = _call_any_model(prompt, screener_model)
+    screener_resp   = _call_any_model(prompt, screener_model, system_prompt=system_prompt)
     screener_parsed = parse_signal(screener_resp)
     screener_signal = extract_asset_signal(screener_parsed, asset_name)
 
@@ -1599,7 +1584,7 @@ def call_dual_model_api(
         return screener_resp
 
     print(f"  [双模型] 初筛: {screener_action} (bias={screener_bias:.2f}) → 触发确认模型 ({confirm_model})...")
-    confirm_resp   = _call_any_model(prompt, confirm_model)
+    confirm_resp   = _call_any_model(prompt, confirm_model, system_prompt=system_prompt)
     confirm_parsed = parse_signal(confirm_resp)
     confirm_signal = extract_asset_signal(confirm_parsed, asset_name)
 
@@ -1629,6 +1614,7 @@ def call_voting_model_api(
     models: list = None,
     bias_threshold: float = 0.55,
     prefer_model: str = None,
+    system_prompt: str = "",
 ) -> str:
     """多模型投票：多数决定最终信号，无共识时强制 no_trade"""
     from collections import Counter
@@ -1643,7 +1629,7 @@ def call_voting_model_api(
     votes = []
     for model in models:
         print(f"\n[投票] 调用 {model}...")
-        resp   = _call_any_model(prompt, model)
+        resp   = _call_any_model(prompt, model, system_prompt=system_prompt)
         parsed = parse_signal(resp)
         signal = extract_asset_signal(parsed, asset_name)
         if signal:
@@ -1786,6 +1772,19 @@ def main():
     print()
     peer_data = fetch_peer_data(ticker)
 
+    print()
+    # 优先使用 RAG 新闻桥接（语义检索 + LLM情绪标注），降级到 yfinance.news
+    if _NEWS_BRIDGE_AVAILABLE:
+        print("正在获取 RAG 新闻信号...")
+        news_context = fetch_news_signals(ticker, lookback_hours=72)
+        news_items = None   # bridge 接管，旧路径不再使用
+    else:
+        news_context = None
+        news_items = fetch_recent_news(ticker)
+
+    # ── 加载 system prompt ──
+    system_prompt = _load_system_prompt()
+
     # ── 构建提示词 ──
     print("\n正在构建分析提示词...")
     prompt = build_prompt_equity(
@@ -1797,6 +1796,8 @@ def main():
         intel=intel,
         perf_metrics=None,
         peer_data=peer_data,
+        news_items=news_items,
+        news_context=news_context,
     )
 
     # ── 保存提示词 ──
@@ -1842,6 +1843,7 @@ def main():
                 models=[args.screener_model, args.confirm_model, args.third_model],
                 bias_threshold=args.dual_bias_threshold,
                 prefer_model=args.prefer_model,
+                system_prompt=system_prompt,
             )
         elif args.dual_model:
             analysis = call_dual_model_api(
@@ -1850,9 +1852,10 @@ def main():
                 screener_model=args.screener_model,
                 confirm_model=args.confirm_model,
                 bias_threshold=args.dual_bias_threshold,
+                system_prompt=system_prompt,
             )
         else:
-            analysis = _call_any_model(prompt, args.model)
+            analysis = _call_any_model(prompt, args.model, system_prompt=system_prompt)
 
         api_output_path = f"{ticker.lower()}_api_output.txt"
         with open(api_output_path, "w", encoding="utf-8") as f:

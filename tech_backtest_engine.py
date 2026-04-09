@@ -912,10 +912,13 @@ def build_blind_prompt(asset_ticker: str, daily: pd.DataFrame, weekly: pd.DataFr
     d_macd_desc  = describe_macd(d_ind, "日线")
     d_rsi_desc   = describe_rsi(d_ind, "日线")
     m_macd_desc  = m_rsi_desc = "N/A"
-    if monthly is not None and not monthly.empty:
-        m_ind_bt = compute_indicators(monthly)
-        m_macd_desc = describe_macd(m_ind_bt, "月线")
-        m_rsi_desc  = describe_rsi(m_ind_bt, "月线")
+    if monthly is not None and not monthly.empty and len(monthly) >= 5:
+        try:
+            m_ind_bt = compute_indicators(monthly)
+            m_macd_desc = describe_macd(m_ind_bt, "月线")
+            m_rsi_desc  = describe_rsi(m_ind_bt, "月线")
+        except Exception:
+            pass  # 月线数据不足时静默跳过，不影响主分析
 
     def _fv(v, u=""):
         return f"{v}{u}" if v is not None else "N/A"
@@ -2008,9 +2011,17 @@ def run_portfolio_backtest(
     second_model: str       = None,
     consec_stop_limit: int  = 2,
     circuit_breaker_days: int = 15,
+    simplified: bool        = False,
 ):
     """
     组合回测：串行持仓 + 真实资金曲线 + 双边佣金。
+
+    simplified=True 时启用 5规则极简模式（去除过拟合验证）：
+      规则1: 价格 > 周线EMA200 才允许做多
+      规则2: bias_score ≥ 0.60（单一阈值，无多级软限）
+      规则3: 止损=2.5×ATR，目标=5×ATR（固定RR=2.0）
+      规则4: 风险/笔=2%（固定）
+      规则5: 无财报黑名单、无死叉软限、无冷却期
 
     相比旧版 run_backtest() 的改进：
       1. 同一时刻只允许一笔持仓（串行，不重叠）
@@ -2031,13 +2042,16 @@ def run_portfolio_backtest(
                       reproducible=reproducible)
 
     all_days = _get_all_trading_days(asset_ticker, start, end)
+    mode_tag = "【5规则极简】" if simplified else "【标准】"
     print(f"\n{'='*60}")
-    print(f"[组合回测] {asset_ticker}  {start} ~ {end}")
+    print(f"[组合回测{mode_tag}] {asset_ticker}  {start} ~ {end}")
     print(f"  模型={model}  初始资金=${initial_capital:,.0f}")
     print(f"  佣金={commission_pct*100:.2f}%/边  滑点={slippage_pct*100:.2f}%/边  总摩擦={((commission_pct+slippage_pct)*2)*100:.2f}%(往返)")
     print(f"  风险/笔={risk_per_trade*100:.0f}%  仓位上限={max_position_pct*100:.0f}%  R:R≥{min_rr}")
-    print(f"  评估间隔={step}天  最长持仓={eval_days}天  止损冷却={stop_cooldown}天")
+    print(f"  评估间隔={step}天  最长持仓={eval_days}天  止损冷却={stop_cooldown}天  {'(冷却期已禁用)' if simplified else ''}")
     print(f"  OOS比例={oos_split*100:.0f}%  复现模式={reproducible}  共 {len(all_days)} 个交易日")
+    if simplified:
+        print(f"  [极简规则] bias≥0.60 | 无财报黑名单 | 无死叉软限 | 无冷却期")
     print("=" * 60)
 
     # ── 财报日历（Plan A：复现实盘的财报黑名单规则）─────────────────
@@ -2221,7 +2235,7 @@ def run_portfolio_backtest(
                       f"  pnl={pnl_pct:+.2f}%  portfolio=${portfolio_value:,.0f}"
                       + ("  [移动止损]" if position.get("trailing") else ""))
 
-                if exit_reason == "STOP_LOSS":
+                if exit_reason == "STOP_LOSS" and not simplified:
                     cooldown     = stop_cooldown + 1
                     eval_counter = 0
                 else:
@@ -2276,16 +2290,16 @@ def run_portfolio_backtest(
                                    "profit_target": None, "stop_loss": None})
             continue
 
-        # ── 财报黑名单检查（Plan A）────────────────────────────────
+        # ── 财报黑名单检查（simplified模式跳过）────────────────────────
         days_to_earn, earn_date = _earnings_proximity(today_str, earnings_lookup)
-        if days_to_earn <= 5:
+        if not simplified and days_to_earn <= 5:
             print(f"[{idx+1:>3}/{len(all_days)}] {today_str}  EARNINGS_BLACKOUT "
                   f"(财报日 {earn_date} 距今 {days_to_earn}天 ≤5天，强制 no_trade)")
             signal_records.append({"date": today_str, "action": "no_trade",
                                    "bias_score": 0.0, "regime": "earnings_blackout",
                                    "profit_target": None, "stop_loss": None})
             continue
-        earnings_cap = (days_to_earn <= 15)  # 6-15天：bias_score 上限 0.55
+        earnings_cap = (not simplified and days_to_earn <= 15)  # 6-15天：bias_score 上限 0.55
 
         prompt = build_blind_prompt(asset_ticker, daily, weekly, macro, None, monthly,
                                        eps_history=eps_history_df, signal_date=today_str)
@@ -2321,13 +2335,15 @@ def run_portfolio_backtest(
                                 "bias_score": bias, "regime": regime,
                                 "profit_target": None, "stop_loss": None})
 
-        if action not in ("long", "short") or bias < 0.45:
+        # simplified模式：单一阈值0.60；默认模式：0.45
+        _bias_gate = 0.60 if simplified else 0.45
+        if action not in ("long", "short") or bias < _bias_gate:
             print("→ SKIP")
             continue
 
         # ── 个股周线死叉：价格分档过滤 ────────────────────────────────
-        # 价格 < EMA200（确认下跌趋势）→ 硬拦截禁止做多（2022年熊市式）
-        # 价格 ≥ EMA200（修复行情）→ 允许做多，但将 bias 压低至 0.60（Trending-Recovery）
+        # 规则1（simplified也保留）：价格 < EMA200 → 硬拦截禁止做多
+        # 规则（仅默认模式）：价格 ≥ EMA200 但死叉 → 软压制 bias→0.60
         if action == "long" and not weekly.empty and "Close" in weekly.columns:
             wc = weekly["Close"].squeeze().dropna()
             w_e50  = calc_ema(wc, 50).dropna()
@@ -2336,11 +2352,11 @@ def run_portfolio_backtest(
                 e50_v  = float(w_e50.iloc[-1])
                 e200_v = float(w_e200.iloc[-1])
                 if e50_v < e200_v:                        # 死叉
-                    if today_close < e200_v:              # 价格在 EMA200 之下 → 硬拦截
+                    if today_close < e200_v:              # 价格在 EMA200 之下 → 硬拦截（始终）
                         print(f"→ LONG_BLOCKED(死叉+价格{today_close:.1f}<EMA200={e200_v:.1f})")
                         signal_records[-1]["action"] = "blocked_death_cross"
                         continue
-                    else:                                  # 价格在 EMA200 之上 → 修复行情，软压制
+                    elif not simplified:                   # 价格在 EMA200 之上 → 软压制（仅默认模式）
                         bias = min(bias, 0.60)
                         print(f"→ LONG_RECOVERY(死叉但价格{today_close:.1f}≥EMA200={e200_v:.1f}, bias→{bias:.2f})", end="  ")
 
@@ -2533,6 +2549,237 @@ def run_portfolio_backtest(
 
 
 # ─────────────────────────────────────────────
+# Beta 底仓回测（EMA200上方持有50%底仓 + LLM叠加）
+# ─────────────────────────────────────────────
+
+def run_beta_floor_backtest(
+    asset_ticker: str,
+    start: str,
+    end: str,
+    model: str,
+    floor_pct: float      = 0.50,   # 基础底仓：EMA200上方持有50%
+    overlay_pct: float    = 0.30,   # LLM强信号叠加：+30%（总上限80%）
+    bias_threshold: float = 0.60,   # LLM叠加触发阈值
+    initial_capital: float = 100_000,
+    commission_pct: float = 0.001,
+    slippage_pct: float   = 0.001,
+    rate_limit: int       = 20,
+    step: int             = 5,      # 每5个交易日评估一次LLM（近似周频）
+    second_model: str     = None,
+    reproducible: bool    = False,
+    oos_split: float      = 0.0,
+):
+    """
+    Beta底仓模式：波动率目标/LLM overlay的极简版本。
+
+    逻辑：
+      1. 价格 > 周线EMA200 → 持有 floor_pct（50%）底仓（类B&H）
+      2. LLM信号 action=long AND bias≥bias_threshold → 再加 overlay_pct（+30%）
+      3. 价格 < 周线EMA200 → 全部清仓（熊市退出）
+      4. 每 step 个交易日评估LLM，判断是否触发叠加层
+
+    优势：先保证跑赢B&H（底仓=B&H的50%），再用LLM叠加争取超额。
+    """
+    output_dir = Path(f"{asset_ticker.lower()}_beta_floor_backtest")
+    output_dir.mkdir(exist_ok=True)
+
+    system_prompt = _build_system_prompt(asset_ticker)
+    prefetch_all_data(asset_ticker, start, end, lookback=200, eval_days=65,
+                      reproducible=reproducible)
+
+    all_days = _get_all_trading_days(asset_ticker, start, end)
+    eps_history_df = fetch_eps_surprise_history(asset_ticker)
+    earnings_lookup = fetch_historical_earnings(asset_ticker, start, end)
+
+    print(f"\n{'='*60}")
+    print(f"[Beta底仓回测] {asset_ticker}  {start} ~ {end}")
+    print(f"  模型={model}  初始资金=${initial_capital:,.0f}")
+    print(f"  底仓={floor_pct*100:.0f}%（EMA200上方）  LLM叠加=+{overlay_pct*100:.0f}%（bias≥{bias_threshold}时）")
+    print(f"  总仓上限={min((floor_pct+overlay_pct)*100,80):.0f}%  EMA200下方=清仓")
+    print(f"  LLM评估间隔={step}天  共 {len(all_days)} 个交易日")
+    print("=" * 60)
+
+    # ── 状态变量 ──────────────────────────────────────────────────
+    cash: float        = float(initial_capital)
+    shares: int        = 0           # 当前持仓股数
+    overlay_active: bool = False     # 当前是否激活了LLM叠加层
+    eval_counter: int  = 0
+
+    equity_curve: list[dict]   = []
+    trade_records: list[dict]  = []
+    signal_records: list[dict] = []
+
+    def _get_weekly_ema200(ref_date: str) -> Optional[float]:
+        _, weekly, _ = fetch_data_up_to(asset_ticker, ref_date)
+        if weekly.empty or "Close" not in weekly.columns:
+            return None
+        wc = weekly["Close"].squeeze().dropna()
+        e200 = calc_ema(wc, 200).dropna()
+        return float(e200.iloc[-1]) if not e200.empty else None
+
+    # ── 主循环：逐日迭代 ───────────────────────────────────────────
+    for idx, today_str in enumerate(all_days):
+        ohlcv = _ohlcv_from_cache(asset_ticker, today_str)
+        if ohlcv is None:
+            continue
+        today_close = ohlcv["close"]
+
+        # ── A. 计算当前组合市值 ───────────────────────────────────
+        portfolio_value = cash + shares * today_close
+        equity_curve.append({"date": today_str, "portfolio_value": round(portfolio_value, 2)})
+
+        # ── B. 获取周线EMA200（每日检查制度）────────────────────────
+        # 每日重算开销大，改为每 step 日重算一次（与LLM评估同步）
+        eval_counter += 1
+        if (eval_counter - 1) % step != 0:
+            continue
+
+        # 获取技术数据
+        daily, weekly, monthly = fetch_data_up_to(asset_ticker, today_str)
+        if daily.empty or weekly.empty:
+            continue
+
+        wc     = weekly["Close"].squeeze().dropna()
+        e200_s = calc_ema(wc, 200).dropna()
+        if e200_s.empty:
+            continue
+        w_ema200 = float(e200_s.iloc[-1])
+        above_ema200 = today_close > w_ema200
+
+        # ── C. 制度判断：决定目标仓位 ────────────────────────────────
+        llm_overlay = False
+        if not above_ema200:
+            # 熊市制度 → 全部清仓
+            target_pct = 0.0
+            regime_note = f"EMA200下方({today_close:.1f}<{w_ema200:.1f})→清仓"
+            signal_records.append({"date": today_str, "action": "EXIT_BEAR",
+                                    "bias_score": 0.0, "regime": "bear_regime",
+                                    "above_ema200": False, "target_pct": 0.0})
+        else:
+            # 牛市制度 → 至少底仓
+            target_pct = floor_pct
+            regime_note = f"EMA200上方({today_close:.1f}>{w_ema200:.1f})→底仓{floor_pct*100:.0f}%"
+
+            # 每 step 日触发LLM评估，决定是否叠加
+            macro = fetch_macro_for_date(today_str, asset_ticker)
+            pre_block = _python_pre_filter_bt(weekly, today_close, macro)
+
+            if not pre_block:
+                print(f"[{idx+1:>3}/{len(all_days)}] {today_str}  LLM叠加评估...", end="  ", flush=True)
+                prompt = build_blind_prompt(asset_ticker, daily, weekly, macro, None, monthly,
+                                            eps_history=eps_history_df, signal_date=today_str)
+                if prompt:
+                    time.sleep(rate_limit)
+                    signal = call_dual_api(prompt, model, system_prompt, rate_limit=0,
+                                          second_model=second_model, asset_ticker=asset_ticker)
+                    if signal:
+                        asset_list = signal.get("asset_analysis", [])
+                        sig = next((x for x in asset_list
+                                    if x.get("asset", "").upper() == asset_ticker.upper()), None)
+                        if sig:
+                            action = sig.get("action", "no_trade")
+                            bias   = float(sig.get("bias_score") or 0)
+                            if action == "long" and bias >= bias_threshold:
+                                target_pct = min(floor_pct + overlay_pct, 0.80)
+                                llm_overlay = True
+                                regime_note += f"  LLM叠加+{overlay_pct*100:.0f}%(bias={bias:.2f})→{target_pct*100:.0f}%"
+                            else:
+                                regime_note += f"  LLM={action}(bias={bias:.2f})→仅底仓"
+                            signal_records.append({"date": today_str, "action": action,
+                                                    "bias_score": bias,
+                                                    "regime": sig.get("regime", ""),
+                                                    "above_ema200": True,
+                                                    "target_pct": target_pct,
+                                                    "llm_overlay": llm_overlay})
+            else:
+                regime_note += f"  LLM跳过({pre_block[:40]})"
+
+        # ── D. 执行仓位调整 ──────────────────────────────────────────
+        target_shares = int(portfolio_value * target_pct / today_close) if today_close > 0 else 0
+        delta = target_shares - shares
+
+        if abs(delta) > 0:
+            if delta > 0:
+                # 买入
+                cost = delta * today_close * (1 + slippage_pct) * (1 + commission_pct)
+                if cost <= cash:
+                    cash -= cost
+                    shares += delta
+                    actual_pct = shares * today_close / portfolio_value
+                    action_str = "BUY"
+                    trade_records.append({
+                        "date": today_str, "action": "BUY", "shares_delta": delta,
+                        "price": round(today_close, 2), "target_pct": target_pct,
+                        "portfolio_value": round(portfolio_value, 2),
+                        "llm_overlay": llm_overlay, "above_ema200": above_ema200,
+                    })
+                    print(f"  [{action_str}] {today_str} +{delta}股 @{today_close:.2f}"
+                          f"  仓位{actual_pct:.0%}  {regime_note}")
+            else:
+                # 卖出
+                sell_shares = -delta
+                proceeds = sell_shares * today_close * (1 - slippage_pct) * (1 - commission_pct)
+                cash += proceeds
+                shares -= sell_shares
+                actual_pct = shares * today_close / portfolio_value
+                action_str = "SELL"
+                trade_records.append({
+                    "date": today_str, "action": "SELL", "shares_delta": delta,
+                    "price": round(today_close, 2), "target_pct": target_pct,
+                    "portfolio_value": round(portfolio_value, 2),
+                    "llm_overlay": llm_overlay, "above_ema200": above_ema200,
+                })
+                print(f"  [{action_str}] {today_str} {delta}股 @{today_close:.2f}"
+                      f"  仓位{actual_pct:.0%}  {regime_note}")
+        else:
+            pct = shares * today_close / portfolio_value if portfolio_value > 0 else 0
+            print(f"  [HOLD]  {today_str}  仓位{pct:.0%}  {regime_note}")
+
+    # ── 回测结束：输出结果 ─────────────────────────────────────────
+    last_ohlcv = _ohlcv_from_cache(asset_ticker, all_days[-1]) if all_days else None
+    final_price = last_ohlcv["close"] if last_ohlcv else 0
+    final_value = cash + shares * final_price
+
+    total_return = (final_value / initial_capital - 1) * 100
+    years = len(all_days) / 252
+
+    print(f"\n{'='*60}")
+    print(f"[Beta底仓回测] {asset_ticker} 结果汇总")
+    print(f"  初始资金        : ${initial_capital:,.0f}")
+    print(f"  最终净值        : ${final_value:,.0f}")
+    print(f"  总收益          : {total_return:+.2f}%")
+    if years > 0.1 and total_return > -100:
+        cagr = ((1 + total_return / 100) ** (1 / years) - 1) * 100
+        print(f"  CAGR            : {cagr:+.2f}%")
+
+    # Buy-and-Hold 对比
+    bh = compute_buyhold_return(asset_ticker, start, end)
+    if bh:
+        bh_ret = float(bh["bh_total_return"].replace("%", ""))
+        alpha  = total_return - bh_ret
+        print(f"\n  ── B&H 基准对比 ({start} ~ {end}) ──")
+        print(f"  策略总收益      : {total_return:+.2f}%")
+        print(f"  B&H 总收益      : {bh['bh_total_return']}")
+        print(f"  Alpha vs B&H    : {alpha:+.2f}%  {'✓ 跑赢' if alpha > 0 else '✗ 跑输'} Buy-and-Hold")
+        print(f"  （底仓={floor_pct*100:.0f}% 理论上应达到 B&H×{floor_pct:.0f} = {bh_ret*floor_pct:+.1f}%）")
+
+    # OOS 分割
+    if oos_split > 0 and trade_records:
+        all_trade_dates = sorted(set(t["date"] for t in trade_records))
+        split_idx = max(1, int(len(all_trade_dates) * (1 - oos_split)))
+        if split_idx < len(all_trade_dates):
+            split_date = all_trade_dates[split_idx]
+            print(f"\n  [OOS分割] 分割点: {split_date}  (后{oos_split*100:.0f}%为样本外)")
+
+    pd.DataFrame(equity_curve).to_csv(output_dir / "equity.csv", index=False, encoding="utf-8-sig")
+    pd.DataFrame(trade_records).to_csv(output_dir / "trades.csv", index=False, encoding="utf-8-sig")
+    pd.DataFrame(signal_records).to_csv(output_dir / "signals.csv", index=False, encoding="utf-8-sig")
+    print(f"\n  资金曲线  → {output_dir}/equity.csv")
+    print(f"  交易明细  → {output_dir}/trades.csv")
+    print(f"  信号记录  → {output_dir}/signals.csv")
+
+
+# ─────────────────────────────────────────────
 # CLI 入口
 # ─────────────────────────────────────────────
 
@@ -2581,6 +2828,10 @@ if __name__ == "__main__":
     parser.add_argument("--second-model",   default=None,               help="双模型确认模型（如 claude-sonnet-4-6），None=单模型")
     parser.add_argument("--consec-stop-limit", default=2, type=int,     help="连续止损次数触发熔断（默认2）")
     parser.add_argument("--circuit-breaker-days", default=15, type=int, help="熔断后暂停入场天数（默认15）")
+    parser.add_argument("--simplified",        action="store_true",        help="5规则极简模式（bias>=0.60/无财报黑名单/无死叉软限/无冷却期），用于去除过拟合验证")
+    parser.add_argument("--beta-floor",        action="store_true",        help="Beta底仓模式：EMA200上方持有50pct底仓+LLM叠加最多30pct（先跑赢B&H）")
+    parser.add_argument("--floor-pct",         default=0.50, type=float,  help="Beta底仓比例（默认0.50=50pct）")
+    parser.add_argument("--overlay-pct",       default=0.30, type=float,  help="LLM强信号叠加比例（默认0.30=30pct，总上限80pct）")
     args = parser.parse_args()
 
     ticker = args.ticker.upper()
@@ -2588,6 +2839,23 @@ if __name__ == "__main__":
         run_generate(ticker, args.start, args.end, args.step, args.eval_days)
     elif args.evaluate:
         run_evaluate(ticker, args.eval_days)
+    elif args.beta_floor:
+        run_beta_floor_backtest(
+            asset_ticker     = ticker,
+            start            = args.start,
+            end              = args.end,
+            model            = args.model,
+            floor_pct        = args.floor_pct,
+            overlay_pct      = args.overlay_pct,
+            initial_capital  = args.capital,
+            commission_pct   = args.commission,
+            slippage_pct     = args.slippage,
+            rate_limit       = args.rate_limit,
+            step             = args.step,
+            second_model     = args.second_model,
+            reproducible     = args.reproducible,
+            oos_split        = args.oos_split,
+        )
     else:
         # portfolio 模式为默认，--portfolio 参数保留仅作向后兼容
         run_portfolio_backtest(
@@ -2608,4 +2876,5 @@ if __name__ == "__main__":
             second_model         = args.second_model,
             consec_stop_limit    = args.consec_stop_limit,
             circuit_breaker_days = args.circuit_breaker_days,
+            simplified           = args.simplified,
         )

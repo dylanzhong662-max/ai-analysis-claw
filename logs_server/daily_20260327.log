@@ -1,0 +1,364 @@
+[20:03:36] ===== 每日金融分析开始 =====
+[20:03:36] --- [1/5] 黄金分析 ---
+正在获取黄金期货数据 (GC=F)...
+日线数据：125 条  |  周线数据：53 条
+
+正在获取宏观跨资产数据...
+  DX-Y.NYB: 62 条
+  ^TNX    : 62 条
+  ^VIX    : 62 条
+  SI=F    : 62 条
+
+正在获取 PAXG 链上黄金价格（CoinGecko）...
+  PAXG 数据获取失败 (HTTPSConnectionPool(host='api.coingecko.com', port=443): Max retries exceeded with url: /api/v3/simple/price?ids=pax-gold&vs_currencies=usd&include_24hr_change=true (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate in certificate chain (_ssl.c:1077)'))))
+
+已载入回测指标 — 胜率: 48.5%  盈利因子: 5.54  连续亏损: 0 次
+
+提示词已保存到文件: gold_prompt_output.txt
+
+正在调用 DeepSeek API（模型: deepseek-reasoner）...
+
+============================================================
+```json
+{
+  "period": "Daily",
+  "overall_market_sentiment": "Risk-Off",
+  "dxy_assessment": "DXY 当前价格（100.1）高于其 EMA20（99.29），呈短期向上趋势。美元走强将对以美元计价的黄金构成直接压力，增加了黄金的下行动力。",
+  "asset_analysis": [
+    {
+      "asset": "GOLD",
+      "regime": "Trending",
+      "action": "short",
+      "bias_score": 0.52,
+      "entry_zone": "4412.8 – 4486.6",
+      "profit_target": 4095.6,
+      "stop_loss": 4626.7,
+      "risk_reward_ratio": 2.0,
+      "invalidation_condition": "日线收盘价连续两日站稳于 50日EMA (4807.85) 上方，或 MACD 柱状线由负转正并形成金叉。",
+      "macro_catalyst": "美元指数与美债收益率同步上行，增加黄金持有成本及下行压力；同时，高企的 VIX 所引发的避险情绪，虽为黄金提供部分支撑，但未能扭转由强势美元和实际利率上行主导的下跌趋势。",
+      "technical_setup": "价格（4449.7）大幅低于 EMA20（-6.6%）且 MACD 深度为负（-156.25），确认日线级别下跌趋势。ADX (28.0) > 25 表明趋势力度增强。RSI-7 (32.42) 脱离超卖区但未进入强势区，弱势反弹后或延续跌势。%B (0.161) 位于布林下轨附近，显示价格处于区间低位。尽管今日 OBV 显示量价配合反弹，但该反弹发生在明确的下行通道内，属技术性修复可能性大。",
+      "justification": "综合技术指标与宏观环境，黄金处于明确的下跌趋势中。技术面：价格远离 EMA20 且 MACD 持续为负，ADX 确认趋势强度，整体空头结构完整。当前 RSI 的弱势反弹恰为提供更佳的风险回报入场点。宏观面：美元走强和收益率上行是黄金的主要下行驱动力，而 VIX 高企带来的避险买盘目前仅为跌势中的缓冲。虽然价格偏离均线较远，限制了做空的最高置信度（bias_score 上限 0.55），但趋势方向和宏观压力明确。严格遵循预设的入场区间和风控参数，此交易具备逻辑基础。"
+    }
+  ]
+}
+```
+============================================================
+
+API 分析结果已保存到文件: gold_api_output.txt
+
+[LIVE] 交易执行器启动
+  信号: short  |  bias_score: 0.52  |  entry_zone: 4412.8 – 4486.6
+  [错误] 未设置 BINANCE_API_KEY / BINANCE_API_SECRET 环境变量，无法交易。
+[20:04:58] 黄金分析完成
+[20:04:58] --- [2/3] BTC 分析 ---
+正在获取 BTC-USD 数据...
+  日线: 182 条  |  周线: 210 条  |  月线: 60 条
+
+正在获取宏观背景数据（ETH / SPX / NDX / DXY / TNX / VIX / Gold）...
+  ETH-USD     : 182 条
+  ^GSPC       : 124 条
+  ^NDX        : 124 条
+  DX-Y.NYB    : 125 条
+  ^TNX        : 125 条
+  ^VIX        : 125 条
+  GC=F        : 125 条
+
+正在获取衍生品情绪数据...
+  Fear&Greed: 13 (Extreme Fear)
+  Funding Rate: -0.0110% (16期均值: 0.0001%)
+
+提示词已保存: btc_prompt_output.txt
+
+正在调用 DeepSeek API（模型: deepseek-reasoner）...
+
+============================================================
+```json
+{
+  "period": "Strategic",
+  "analysis_date": "2026-03-27",
+  "btc_cycle_regime": "Late-Bull",
+  "macro_environment": "Risk-Off",
+  "downside_risk_level": "Medium",
+  "sentiment_summary": {
+    "fear_greed_index": 13,
+    "fear_greed_classification": "Extreme Fear",
+    "funding_rate_current": -0.011,
+    "funding_rate_signal": "中性",
+    "ndx_correlation": 0.588,
+    "correlation_risk": "中"
+  },
+  "asset_analysis": [
+    {
+      "asset": "BTC",
+      "holding_timeframe": "6mo-3yr",
+      "regime": "Trending",
+      "action": "long",
+      "bias_score": 0.55,
+      "position_sizing": "quarter",
+      "entry_zone": "64057 - 69209",
+      "profit_target": 117337,
+      "stop_loss": 49457,
+      "risk_reward_ratio": 2.95,
+      "key_bearish_risks": [
+        {"risk_id": 1, "risk_type": "200WMA跌破", "severity": "Medium", "trigger_level": "59250.0", "current_status": "当前价格高于200WMA 12.5%，但宏观压力下存在跌破风险"},
+        {"risk_id": 2, "risk_type": "月线RSI超买", "severity": "Low", "trigger_level": "RSI>80", "current_status": "当前月线RSI=41.8，处于中性区间，无超买风险"},
+        {"risk_id": 3, "risk_type": "宏观流动性收紧", "severity": "Medium-High", "trigger_level": "10Y收益率持续上行+美联储鹰派", "current_status": "10Y收益率4.42%且趋势向上，美元强势，流动性环境偏紧"},
+        {"risk_id": 4, "risk_type": "美元强势", "severity": "Medium", "trigger_level": "DXY>100且趋势向上", "current_status": "DXY=100.09 > EMA20=99.29，短期趋势向上，压制风险资产"},
+        {"risk_id": 5, "risk_type": "纳指崩盘传导", "severity": "Medium", "trigger_level": "NDX下跌>10%", "current_status": "NDX近10日下跌3.3%，与BTC相关系数0.588，存在同步下跌风险"},
+        {"risk_id": 6, "risk_type": "监管/黑天鹅", "severity": "Low", "trigger_level": "重大监管事件", "current_status": "ETF运行稳定，暂无重大监管黑天鹅"},
+        {"risk_id": 7, "risk_type": "减半周期见顶", "severity": "Medium", "trigger_level": "周期>45%且月RSI>80", "current_status": "周期进度48.4%已进入历史顶部窗口，但月RSI=41.8未过热，存在时间窗口风险"}
+      ],
+      "cycle_context": "减半周期进度48.4%，处于历史牛市顶部高发窗口（减半后12-24个月）。但当前月线RSI=41.8中性，价格从ATH回调46%，并未出现典型顶部过热特征。价格仍高于200WMA，长期牛市结构未破，但周期时间窗口警示顶部风险。",
+      "macro_catalyst": "宏观流动性收紧（美元强势、10Y收益率上行）压制风险资产，与纳斯达克高相关性（0.588）带来传导风险。但极度恐惧情绪已部分反映宏观压力，若流动性预期转向（美联储降息）将构成强劲催化剂。",
+      "technical_setup": "月线：RSI中性，MACD高位回落但未死叉。周线：趋势性下跌（MACD<-9000，ADX>35），价格低于所有主要周均线，RSI超卖（32.3）。日线：空头排列（价格<EMA20<EMA50<EMA200），RSI-7接近超卖（33.8），BB %B接近下轨（0.085），存在技术性反弹需求。",
+      "sentiment_assessment": "恐惧贪婪指数13（极度恐惧）是经典反向做多信号。资金费率略负（-0.011%）显示市场偏空但不极端，未出现空头挤压风险。ETH/BTC比率下降显示资金回流BTC，主导性增强。",
+      "invalidation_condition": "价格周线收盘跌破200WMA（59250），则长期牛市结构破坏，多单止损离场。",
+      "justification": "①减半周期：处于48.4%进度，历史顶部窗口，但月线RSI中性且价格已深度回调，未出现泡沫特征。②宏观流动性：美元强势、利率上行构成压制，但极度恐惧情绪已部分定价；若美联储转向将催化上涨。③纳指相关性：0.588的中高相关性带来传导风险，但纳指近期跌幅（-3.3%）相对温和。④技术结构：价格高于200WMA支撑，周线超卖，日线接近布林下轨，存在均值回归动能。⑤情绪指标：极度恐惧（13）是强烈反向做多信号，配合资金费率中性，提供高胜率布局窗口。综合评估，尽管处于牛市后期且宏观承压，但极端情绪与技术超卖支持战略级做多布局，以200WMA为最终防线。"
+    }
+  ]
+}
+```
+============================================================
+
+分析结果已保存: btc_api_output.txt
+[20:07:27] BTC 分析完成
+[20:07:27] --- [3/5] GOOGL 分析 ---
+正在获取 GOOGL 股价数据...
+  日线: 61 条 | 周线: 105 条 | 月线: 60 条
+
+正在获取宏观基准数据...
+  QQQ         : 53 条
+  XLK         : 53 条
+  SPY         : 53 条
+  ^TNX        : 53 条
+  ^VIX        : 53 条
+  DX-Y.NYB    : 53 条
+
+正在获取 GOOGL 情报数据...
+  Forward P/E 重算: 280.92 / 11.432 = 24.57
+  情报数据完成，有效字段: 37/38
+
+正在获取 GOOGL 同业对标数据 (META, MSFT)...
+  META: -23.5%  vs QQQ: -15.8%
+  MSFT: -14.8%  vs QQQ: -7.0%
+
+正在构建分析提示词...
+提示词已保存到: googl_prompt_output.txt
+
+正在调用 DeepSeek API（模型: deepseek-reasoner）...
+
+============================================================
+```json
+{
+  "period": "Weekly",
+  "stock_ticker": "GOOGL",
+  "overall_market_sentiment": "Risk-Off",
+  "qqq_assessment": "QQQ处于EMA金叉（50>200）的长期多头结构中，但近8周回调5.9%，短期趋势向下。VIX处于恐慌区间，市场避险情绪浓厚。对GOOGL而言，QQQ的短期疲软构成压力，但长期结构未破坏，若市场企稳，科技股龙头有望率先反弹。",
+  "sector_assessment": "XLK近8周跑输QQQ（超额-0.23%），显示科技板块整体面临资金流出或相对弱势，板块轮动信号对GOOGL不利。",
+  "macro_rate_environment": "10年期收益率趋势上升（4.416%指向5.0%），高利率环境持续压制成长股估值，尤其是对长期现金流折现敏感的科技股。Fed政策偏向紧缩，宏观层面对GOOGL等科技股构成显著压力。",
+  "earnings_risk_flag": false,
+  "earnings_days_away": 27,
+  "asset_analysis": [
+    {
+      "asset": "GOOGL",
+      "regime": "Trending-Down",
+      "action": "no_trade",
+      "bias_score": 0.4,
+      "entry_zone": "271.65 – 290.19",
+      "profit_target": null,
+      "stop_loss": null,
+      "risk_reward_ratio": null,
+      "invalidation_condition": "价格放量突破并站稳周线EMA20（~$298）之上，同时QQQ止跌反弹且VIX回落至25以下，则下跌趋势可能失效。",
+      "estimated_holding_weeks": 0,
+      "price_action_analysis": {
+        "trend_structure": "长期（月线）趋势坚定向上（价格>EMA20，MACD强正值）。中期（周线）结构出现裂痕：价格已跌破EMA20（$298），但仍高于EMA50（$261.84）和EMA200（$196.6），且EMA50>EMA200维持长期金叉。整体为长期牛市中的中期回调。",
+        "momentum_signals": "周线MACD（13.08）仍为正值但已连续大幅收敛，多头动能显著衰减。RSI-14（46.35）进入中性偏弱区间，RSI-7（29.71）接近超卖。Stochastic %K（3.4）极度超卖。ADX（34.4）显示趋势仍强，但-DI（22.2）> +DI（19.5），空头主导短期动能。",
+        "volatility_context": "周线ATR为18.55，波动性中等偏高。BB%B为0.019，价格触及布林带下轨，显示短期超卖。带宽扩张至20.12%，表明波动率放大，趋势可能加速。",
+        "volume_obv": "OBV近6周呈下降趋势，与价格从高点回落同步，显示下跌伴随卖盘，为量价配合下跌，非典型背离，但确认了机构派发或资金流出。",
+        "relative_strength_vs_qqq": "近20周跑赢QQQ约7.07%，显示个股具有相对强势，但在近期市场普跌中，这种相对强势可能被削弱。"
+      },
+      "structured_analysis": {
+        "market_hierarchy_alignment": "存在显著冲突。L1（宏观利空）、L2（指数短期跌长期多，冲突）、L3（板块利空）、L4（个股相对强势，利好）、L5（技术面回调）。至少2层冲突，未形成同向合力。",
+        "earnings_cycle_phase": "处于财报季间期，距下次财报（2026-04-24）约27天，属于中等财报风险窗口（16-30天）。",
+        "sector_rotation_signal": "XLK跑输QQQ，板块轮动不利，削弱了做多科技股的整体环境。",
+        "regime_justification": "判断为“Trending-Down”的核心依据：1) 价格明确跌破周线EMA20关键均线；2) 周线-DI > +DI且ADX>25，确认空头主导的下跌趋势；3) 从近期高点$343.45回落超18%，形成清晰的下降波段。"
+      },
+      "intelligence_analysis": {
+        "earnings_estimate_trend": "盈利预估稳健，连续4个季度超预期，显示盈利质量高。全年EPS预期增速5.8%，营收预期增速16.9%，增长前景依然健康。",
+        "analyst_consensus": "极度看多，91%分析师给出买入评级，平均目标价$376.75，隐含+34.1%上行空间，构成强劲的基本面支撑。",
+        "valuation_context": "远期市盈率24.57处于历史合理区间，考虑到公司高盈利增长（YoY 31.1%）和营收加速（最近季度环比增速提升），估值并不极端。高ROE（35.7%）和净利率（32.8%）显示卓越的财务质量。",
+        "macro_catalyst": "核心宏观矛盾：高利率环境与AI投资周期的博弈。长期驱动力在于AI（Gemini）和云业务（Google Cloud）的货币化进展，但短期受制于利率上升对成长股整体的估值压制。",
+        "competitive_intelligence": "1) AI搜索威胁存在，但市场担忧已部分反映在股价回调中；2) Google Cloud增速是关键，若能维持高增长将重估估值；3) YouTube面临竞争但生态稳固；4) DOJ反垄断诉讼是长期悬案，构成估值折价但非近期主导因素；5) Gemini AI货币化处于早期，是未来1-2年的主要增长故事。"
+      },
+      "justification": "综合三维分析，结论为“no_trade”。核心矛盾在于：强劲的基本面（盈利超预期、分析师极度看多、营收加速）与恶化的技术面及宏观环境（利率上升、板块走弱、价格跌破关键均线）形成强烈冲突。尽管长期趋势完好且估值合理，但中短期市场处于“Risk-Off”模式，五层市场层级未对齐（至少2层冲突）。根据框架规则，此时强行交易（无论多空）的胜率和风险回报比不佳。中长线投资者应保持耐心，等待更明确的信号：要么宏观压力缓解（利率见顶、VIX回落）、价格在关键支撑（如EMA50 ~$262）企稳并出现反转信号后考虑做多；要么若下跌趋势延续，个股相对强势瓦解，再评估做空机会。当前距财报27天，可等待财报后趋势进一步明朗。"
+    }
+  ]
+}
+```
+============================================================
+
+API 分析结果已保存到: googl_api_output.txt
+[20:10:19] GOOGL 分析完成
+[20:10:19] --- [4/5] NVDA 分析 ---
+正在获取 NVDA 股价数据...
+  日线: 61 条 | 周线: 105 条 | 月线: 60 条
+
+正在获取宏观基准数据...
+  QQQ         : 53 条
+  XLK         : 53 条
+  SPY         : 53 条
+  ^TNX        : 53 条
+  ^VIX        : 53 条
+  DX-Y.NYB    : 53 条
+
+正在获取 NVDA 情报数据...
+  Forward P/E 重算: 171.24 / 8.295 = 20.64
+  情报数据完成，有效字段: 37/38
+
+正在获取 NVDA 同业对标数据 (AMD, AVGO)...
+  AMD: -13.9%  vs QQQ: -6.2%
+  AVGO: -6.6%  vs QQQ: +1.1%
+
+正在构建分析提示词...
+提示词已保存到: nvda_prompt_output.txt
+
+正在调用 DeepSeek API（模型: deepseek-reasoner）...
+
+============================================================
+```json
+{
+  "period": "Weekly",
+  "stock_ticker": "NVDA",
+  "overall_market_sentiment": "Risk-Off",
+  "qqq_assessment": "QQQ整体趋势仍为多头（EMA金叉），但近期8周下跌5.9%，进入回调阶段，对成长股形成压制。NVDA近期跑输QQQ，显示其相对弱势。若QQQ不能企稳反弹，NVDA难有独立表现。",
+  "sector_assessment": "XLK相对QQQ小幅落后（-0.23%），科技板块整体表现疲软，对NVDA形成板块层面的不利环境。",
+  "macro_rate_environment": "10年期美债收益率上升至4.416%（近8周+5.0%），美联储政策偏向紧缩，对高估值成长股的折现率形成压制，是当前市场的主要逆风。",
+  "earnings_risk_flag": false,
+  "earnings_days_away": 54,
+  "asset_analysis": [
+    {
+      "asset": "NVDA",
+      "regime": "Consolidation",
+      "action": "no_trade",
+      "bias_score": 0.4,
+      "entry_zone": "164.56 – 177.93",
+      "profit_target": null,
+      "stop_loss": null,
+      "risk_reward_ratio": null,
+      "invalidation_condition": "价格放量突破并站稳周线EMA-20（~180.17）上方，同时QQQ止跌回升，宏观利率压力缓解（如10Y收益率回落）。",
+      "estimated_holding_weeks": null,
+
+      "price_action_analysis": {
+        "trend_structure": "长期多头结构（月线EMA20向上，周线EMA50>EMA200金叉），但短期弱势（价格<周线EMA20，EMA50支撑在169.47）。月线MACD仍为正但开始收敛。",
+        "momentum_signals": "周线MACD（0.99）为正但快速衰减，多头动能衰竭。周线RSI（44.4）中性偏弱。ADX（14.2）表明趋势极弱，市场处于无序震荡。",
+        "volatility_context": "周线ATR为13.37，波动性中等。布林带%B（0.043）位于下轨附近，带宽扩张，但缺乏明确趋势方向。",
+        "volume_obv": "OBV近6周趋势下降，与价格下跌同步，未出现明显背离，但显示卖压持续。",
+        "relative_strength_vs_qqq": "近20周跑输QQQ（-3.4%），显示个股相对弱势，缺乏阿尔法。"
+      },
+
+      "structured_analysis": {
+        "market_hierarchy_alignment": "存在2层及以上冲突：L1宏观（利空成长股）与L2指数（QQQ长期多头）冲突；L3板块（科技落后）与L5技术（震荡偏空）对齐，但与L2冲突。",
+        "earnings_cycle_phase": "财报周期早期，距下次财报54天，有充足时间观察，财报非当前核心风险。",
+        "sector_rotation_signal": "XLK跑输QQQ，科技板块资金流出，对NVDA不利。",
+        "regime_justification": "核心依据：ADX（14.2）<20，表明市场缺乏有效趋势，进入震荡整理阶段；价格在周线EMA20与EMA50之间争夺，且与多个宏观/板块层面信号冲突。"
+      },
+
+      "intelligence_analysis": {
+        "earnings_estimate_trend": "EPS预估维持高位增长（全年73.9%），但季度营收环比增速出现放缓迹象（-2.6pp），为潜在隐忧。连续4季超预期显示盈利质量高。",
+        "analyst_consensus": "强烈看多（95%买入评级），平均目标价$268.22，隐含+56.6%上行空间，提供强劲的心理支撑和长期目标锚。",
+        "valuation_context": "远期市盈率20.64，对于73.9%的预期增速而言估值合理。但需警惕营收增速放缓是否会影响估值倍数。高ROE（101.5%）和利润率显示公司质地优异。",
+        "macro_catalyst": "AI资本开支超级周期是核心长线逻辑，但短期受制于利率上升的估值压缩和科技股整体回调。市场在等待更清晰的利率路径和科技巨头CapEx指引。",
+        "competitive_intelligence": "Blackwell GPU出货节奏是下半年关键催化剂；竞争（AMD MI300X、云厂商自研芯片）压力存在但尚未动摇其领导地位；对华出口管制是尾部风险；当前估值已部分反映高增长预期。"
+      },
+
+      "justification": "综合三维分析，NVDA长期基本面依然强劲（盈利高增、分析师高度看好），但中短期面临多重逆风：1）宏观层面利率上升压制估值；2）板块层面科技股整体跑输市场；3）技术面趋势动能衰竭，陷入震荡（ADX<20）。五层市场评估中存在两层以上冲突，且VIX处于恐慌区间（>25）进一步压制做多情绪。虽然预计算的做多盈亏比满足2.0，但当前bias_score经规则过滤后仅为0.4（主要扣分项：ADX<20上限0.45、宏观与板块冲突、营收增速减速、VIX>25），低于0.5的做单门槛。中长线持仓需要清晰的趋势和层级对齐，当前条件不具备。建议耐心等待，关键看价格能否在周线EMA50（169.47）附近获得支撑并重新组织上涨动能，同时需要宏观利率压力缓解和科技板块资金回流信号。"
+    }
+  ]
+}
+```
+============================================================
+
+API 分析结果已保存到: nvda_api_output.txt
+[20:12:28] NVDA 分析完成
+[20:12:28] --- [5/5 前] AMZN 分析 ---
+正在获取 AMZN 股价数据...
+  日线: 61 条 | 周线: 105 条 | 月线: 60 条
+
+正在获取宏观基准数据...
+  QQQ         : 53 条
+  XLK         : 53 条
+  SPY         : 53 条
+  ^TNX        : 53 条
+  ^VIX        : 53 条
+  DX-Y.NYB    : 53 条
+
+正在获取 AMZN 情报数据...
+  Forward P/E 重算: 207.54 / 7.762 = 26.74
+  情报数据完成，有效字段: 37/38
+
+正在获取 AMZN 同业对标数据 (MSFT, GOOGL)...
+  MSFT: -14.8%  vs QQQ: -7.0%
+  GOOGL: -16.8%  vs QQQ: -9.1%
+
+正在构建分析提示词...
+提示词已保存到: amzn_prompt_output.txt
+
+正在调用 DeepSeek API（模型: deepseek-reasoner）...
+
+============================================================
+```json
+{
+  "period": "Weekly",
+  "stock_ticker": "AMZN",
+  "overall_market_sentiment": "Risk-Off",
+  "qqq_assessment": "QQQ自身技术结构（EMA金叉）仍为长期多头，但近8周下跌5.9%，显示短期处于调整阶段，对AMZN的方向性影响为短期拖累，中长期若QQQ能守住关键支撑（如EMA200），则可能提供支撑。",
+  "sector_assessment": "XLK跑输QQQ（-0.23%），显示科技板块近期落后于纳指整体表现，对AMZN构成板块层面的短期利空。",
+  "macro_rate_environment": "10年期美债收益率趋势向上（4.416%，目标5.0%），暗示市场对美联储政策预期偏鹰或通胀担忧，对高估值成长股的估值倍数（P/E）形成直接压力。",
+  "earnings_risk_flag": false,
+  "earnings_days_away": 34,
+  "asset_analysis": [
+    {
+      "asset": "AMZN",
+      "regime": "Consolidation",
+      "action": "no_trade",
+      "bias_score": 0.38,
+      "entry_zone": "200.48 – 214.59",
+      "profit_target": null,
+      "stop_loss": null,
+      "risk_reward_ratio": null,
+      "invalidation_condition": "价格周线收盘价强势站上EMA50（~218.08）并伴随成交量放大，或月线收盘价收复EMA20（~210.44）以改变长期下行结构。",
+      "estimated_holding_weeks": null,
+      "price_action_analysis": {
+        "trend_structure": "周线：价格低于EMA20和EMA50但高于EMA200，EMA50>EMA200维持金叉。月线：价格略低于EMA20，但MACD仍为正值。整体结构为长期牛市基础仍在，但中短期陷入回调震荡。",
+        "momentum_signals": "周线MACD为负（-4.61），空头动能占优但斜率未明显扩大。RSI-14（43.12）和Stochastic（21.8/20.5）均处中性区间，显示下跌动能正在减弱，但未形成底部背离或强势反转信号。",
+        "volatility_context": "周线ATR为14.11，布林带%B为0.227（价格位于中轨与下轨间），带宽扩张至25.26%，表明波动率正在扩大，价格可能进入一段趋势加速或剧烈震荡期。",
+        "volume_obv": "OBV近期趋势下降，与价格形成量价背离，暗示下跌过程中有派发行为，是看跌信号。",
+        "relative_strength_vs_qqq": "显著跑输QQQ，近20周超额收益为-9.88%，表明个股层面弱于科技板块及大盘，吸引力不足。"
+      },
+      "structured_analysis": {
+        "market_hierarchy_alignment": "存在显著冲突（L1宏观利空、L3板块利空、L4个股利空 vs L2指数结构长期利多）。L5技术信号混合，但总体偏向调整。",
+        "earnings_cycle_phase": "处于财报季间期，距下次财报（5月1日）约34天，处于中等财报风险窗口（16-30天），有充足时间观察趋势演变。",
+        "sector_rotation_signal": "XLK跑输QQQ，板块轮动对科技股不利，对AMZN构成外部压力。",
+        "regime_justification": "判断为‘Consolidation（震荡整理）’的核心依据是：1）周线ADX仅为14.8（<20），表明市场缺乏强劲趋势；2）价格在近期低点（198.79）与周线均线（~218）之间反复波动；3）波动率（BB带宽）扩大但价格未选择明确方向。"
+      },
+      "intelligence_analysis": {
+        "earnings_estimate_trend": "未来季度及全年EPS预估维持正增长（8.2%），但并未出现近期大幅上调。历史盈利质量优秀（最近4季3次超预期），对中长期信心有支撑。",
+        "analyst_consensus": "极为看多（94%买入评级），平均目标价$280.8，隐含+35.3%上行空间，构成强大的基本面价值锚和潜在催化剂。",
+        "valuation_context": "远期P/E为26.74，结合约12.6%的营收增速和8.2%的盈利增速，估值合理偏高但未过分泡沫化。关键看点是季度营收呈现加速趋势（环比+11.0pp），若持续将能消化当前估值。",
+        "macro_catalyst": "核心驱动逻辑在于：1）美联储利率政策路径何时转向；2）AI投资周期对AWS云业务的增量贡献能否兑现并超预期；3）公司自身零售与广告业务的利润率持续扩张。",
+        "competitive_intelligence": "积极因素：1）AWS AI服务（Bedrock, Anthropic合作）有望抓住下一波云增长；2）广告业务维持高增速，提升整体利润率；3）零售运营效率持续优化。风险：1）云市场竞争加剧（微软、谷歌）；2）宏观消费环境可能影响零售增长；3）高估值对利率敏感。"
+      },
+      "justification": "综合三维分析，当前不建议对AMZN进行中长线开仓（no_trade）。技术面（L5）：价格处于关键均线（EMA20/50）下方，动能（MACD）偏空，且相对强度（L4）持续跑输QQQ和板块（L3），显示短期弱势。市场层级（L1-L5）存在显著冲突（宏观利空、板块利空、个股弱势 vs 指数长期结构尚可），导致趋势不明，ADX<20确认震荡格局。尽管基本面（情报维度）坚实（分析师极度看多、营收加速、AI前景），但短期无法抵消技术面疲软和宏观利率压力。中长线交易需要更清晰的多维共振信号，例如：价格重新站上均线集群、宏观利率压力缓解、或个股相对强度转强。当前应耐心观望，等待更优的风险回报时机。"
+    }
+  ]
+}
+```
+============================================================
+
+API 分析结果已保存到: amzn_api_output.txt
+[20:14:10] AMZN 分析完成
+[20:14:10] --- [6/6] 飞书推送 ---
+错误: 请设置环境变量 FEISHU_WEBHOOK_URL 或通过 --webhook 参数传入
+示例: export FEISHU_WEBHOOK_URL='https://open.feishu.cn/open-apis/bot/v2/hook/xxx'
+[20:14:10] 飞书推送完成
+[20:14:10] ===== 每日分析全部完成（黄金 + BTC + GOOGL + NVDA + AMZN）=====
