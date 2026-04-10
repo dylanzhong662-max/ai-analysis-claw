@@ -8,7 +8,7 @@
 2. **加密货币**（`btc_analysis.py`）：BTC 战略周期分析。
 3. **纳斯达克科技股**（`tech_stock_analysis.py`）：GOOGL、MSFT、NVDA、AAPL、META、AMZN。
 
-在单资产分析之上，新增两个横向模块：
+在单资产分析之上，两个横向模块：
 - **多资产扫描**（`market_scan.py`）：批量分析所有资产，LLM 额外输出板块排名、Top 5 机会、相关性风险。
 - **持仓跟踪**（`portfolio_tracker.py`）：读取 `portfolio.json` 持仓，结合实时价格和最新信号，输出 HOLD / STOP_TRIGGERED / TARGET_REACHED 等具体操作建议，并生成 `orders.json` 供交易接口读取。
 
@@ -34,39 +34,41 @@
 ├── market_scan.py            # 多资产横向扫描 + 跨资产机会排名
 ├── portfolio_tracker.py      # 持仓跟踪 + Beta Overlay 仓位管理
 ├── assets_config.py          # 资产注册表 + 扫描分组配置
-├── backtest_engine.py        # 黄金历史回测引擎（EVAL_DAYS=65，2.0×ATR，Mean-Reverting 低仓位允许）
 ├── tech_backtest_engine.py   # 科技股/ETF 回测引擎（EVAL_DAYS=22，仓位管理，SHORT_FILTERED）
-├── btc_backtest_engine.py    # BTC 专用回测引擎（EVAL_DAYS=60，长周期评估）
-├── google_backtest.py        # GOOGL 科技股回测引擎（旧版，逐步迁移至 tech_backtest_engine）
-├── run_all_backtests.py      # 多资产批量回测编排脚本
-├── calibrate_models.py       # 双模型校准脚本（R1 vs Claude bias 系数对齐）
+├── baseline_strategy.py      # 5规则极简策略（对照组，供 run_historical_backtest.sh --simplified 调用）
+├── backtest_beta_overlay.py  # Beta Overlay 策略历史回测（含 vol_floor，对比 B&H）
 ├── feishu_notifier.py        # 飞书推送器
-├── validate_regime.py        # 验证：EMA200/EMA50制度过滤准确率分析（2018-2026）
-├── backtest_beta_overlay.py  # 验证：Beta Overlay策略历史回测（含vol_floor，对比B&H）
-├── validate_ic.py            # 验证：LLM信号IC分析（需服务器日志，本地可演示）
+├── signal_logger.py          # 信号持久化（追加到 live_signal_log.csv）
+├── validate_regime.py        # 验证：EMA200/EMA50 制度过滤准确率分析（2018-2026）
+├── validate_ic.py            # 验证：LLM 信号 IC 分析（需服务器日志，本地可演示）
+├── freeze_holdout.py         # 封存 holdout 测试集（防数据泄漏，运行一次）
+├── news_signal_bridge.py     # RAG 新闻信号桥接（语义检索 + LLM 情绪标注）
 ├── run_daily.sh              # 每日定时任务脚本（08:00 CST）
 ├── run_weekly.sh             # 每周汇总脚本（周一 08:30 CST）
+├── run_historical_backtest.sh # 2018-2021 历史泛化验证脚本
 ├── setup_cron.sh             # 服务器 crontab 配置脚本
 ├── deploy.sh                 # 一键部署到阿里云 ECS
+├── start.sh                  # 本地启动后端服务
 ├── requirements.txt          # Python 依赖列表
 │
-├── portfolio.json            # 当前持仓文件（用户维护）
-├── gold_prompt_output.txt    # 最新黄金提示词（自动覆盖）
-├── gold_api_output.txt       # 最新黄金分析结果
-├── {ticker}_api_output.txt   # 各资产最新分析结果
-├── market_scan_output.json   # 最新多资产扫描结果（结构化）
-├── market_scan_report.txt    # 最新多资产扫描报告（原始文本）
-├── portfolio_status.json     # 最新持仓状态评估（自动生成）
-├── overlay_status.json       # Beta Overlay 仓位状态（--beta-overlay 时生成）
-├── orders.json               # 待执行订单列表（--export-orders 时生成）
+├── 纳斯达克科技股分析.markdown  # 科技股分析系统提示词（LLM system prompt）
+├── 大宗商品分析.markdown        # 大宗商品分析系统提示词
+├── 加密货币分析交易提示词.markdown # BTC 分析系统提示词
+├── 使用流程.markdown            # 操作手册
 │
-├── logs/                     # 运行日志（服务器端）
-├── data_cache/               # Parquet 缓存（tech_backtest_engine.py 使用）
-├── backtest_prompts/         # 黄金回测盲化提示词
-├── backtest_responses/       # 手动回测 LLM 响应
-├── backtest_results/         # 黄金回测输出（signals.csv / performance.csv）
-└── googl_backtest_results/   # GOOGL 回测输出
+├── portfolio.json            # 当前持仓文件（用户维护）
+│
+├── nvda_portfolio_backtest/  # NVDA 回测参考数据（equity.csv / signals.csv / trades.csv）
+├── data_cache/               # Parquet 价格缓存（tech_backtest_engine.py 使用，.gitignore）
+├── logs/                     # 运行日志（.gitignore）
+│
+├── backend/                  # FastAPI REST API（持仓/信号/仪表盘接口）
+└── frontend/                 # Vue 3 + Vite 前端仪表盘
 ```
+
+> **运行时输出文件**（不提交 git，每次运行自动覆盖）：
+> `{ticker}_api_output.txt` / `{ticker}_prompt_output.txt` / `trading.db` /
+> `market_scan_output.json` / `overlay_status.json` / `orders.json` / `live_signal_log.csv`
 
 ---
 
@@ -86,9 +88,6 @@ yfinance (宏观)            │
   ├── ^TNX (10Y收益率)   ──┤──> summarize_macro()   ──> 宏观摘要
   ├── ^VIX               ──┤
   └── SI=F (白银)        ──┘
-                          │
-backtest_results/          │
-  └── performance.csv  ────┤──> load_perf_metrics() ──> 历史绩效反馈
                           │
                           └──> build_prompt() ──> 结构化提示词
                                                     │
@@ -143,7 +142,9 @@ python3 gold_analysis.py --api --trade --dry-run      # 模拟下单
 
 宏观数据：QQQ、XLK、SPY、^TNX、^VIX、DX-Y.NYB
 基本面情报：财报日期、EPS 预估、分析师评级、估值指标、盈利惊喜历史
-**近期新闻情绪**：`fetch_recent_news()` 自动注入 yfinance.news 最新标题（仅实盘；回测禁用，无历史新闻数据）
+**近期新闻情绪**：优先使用 `news_signal_bridge.py`（RAG 语义检索 + LLM 情绪标注），降级到 yfinance.news（仅实盘；回测禁用）
+
+System Prompt：运行时自动从 `纳斯达克科技股分析.markdown` 加载，作为 `system` 字段传给模型。
 
 ```bash
 python3 tech_stock_analysis.py --ticker NVDA --api
@@ -153,7 +154,7 @@ python3 tech_stock_analysis.py --ticker REMX --api   # 稀土/钨
 
 ---
 
-### 3. `market_scan.py` — 多资产横向扫描（新）
+### 3. `market_scan.py` — 多资产横向扫描
 
 两阶段流程：
 1. **Stage 1**：依次调用各资产对应的分析脚本，写入 `{ticker}_api_output.txt`
@@ -248,7 +249,7 @@ python3 portfolio_tracker.py --beta-overlay --update-signals --export-orders  # 
 
 `orders.json` 字段（对齐 Binance API）：`side`、`quantity`、`order_type`、`price`、`note`
 
-**动作类型说明（新版）：**
+**动作类型说明：**
 
 | 动作 | 含义 |
 |------|------|
@@ -261,7 +262,7 @@ python3 portfolio_tracker.py --beta-overlay --update-signals --export-orders  # 
 
 ---
 
-### 5. `assets_config.py` — 资产注册表（新）
+### 5. `assets_config.py` — 资产注册表
 
 所有资产的路由信息集中于此，`market_scan.py` 和 `portfolio_tracker.py` 共用：
 
@@ -286,33 +287,27 @@ SCAN_GROUPS = {
 
 ---
 
-### 6. `backtest_engine.py` — 黄金历史回测引擎
-
-**三种模式：**
-
-```bash
-# 生成盲化提示词（无需 API Key）
-python3 backtest_engine.py --generate --start 2024-01-01 --end 2024-12-31 --step 5
-
-# 评估已有手动响应
-python3 backtest_engine.py --evaluate
-
-# 全自动回测（需要 DeepSeek API Key）
-python3 backtest_engine.py --start 2025-01-01 --end 2025-12-31
-python3 backtest_engine.py --start 2025-01-01 --end 2025-12-31 --resume  # 断点续跑
-```
-
-**交易模拟规则：**
-- 入场：信号日次日开盘价
-- 持仓期：最长 `EVAL_DAYS = 15` 个交易日
-- 出场：Low ≤ stop_loss → `STOP_LOSS`；High ≥ profit_target → `TAKE_PROFIT`；超时 → `TIMEOUT`
-- 有效性校验：入场价下 R:R < 1.5 → `INVALID_RR`，不计入统计
-
----
-
 ## 策略验证工具
 
 三个本地可独立运行的验证脚本，用于评估策略各模块的有效性。
+
+### 验证1：LLM信号IC分析（`validate_ic.py`）
+
+检验 `bias_score` 对未来收益是否有统计显著的预测力（需 30+ 条信号样本）。
+
+```bash
+# 本地演示（样本量不足，仅展示框架）
+python3 validate_ic.py
+
+# 完整版：先从服务器拉取日志
+scp -r root@101.201.171.174:/opt/finance-analysis/logs ./logs_server
+python3 validate_ic.py --log-dir logs_server
+
+# 指定回测 signals.csv
+python3 validate_ic.py --signals-csv nvda_portfolio_backtest/signals.csv
+```
+
+解读：`t-stat > 2.0` 表示LLM信号有预测力；`t-stat < 1.5` 表示LLM择时无效，应专注制度过滤。
 
 ### 验证2：制度过滤准确率（`validate_regime.py`）
 
@@ -336,24 +331,6 @@ python3 backtest_beta_overlay.py --target-vol 0.12    # 更保守：12%目标波
 ```
 
 参数与 `portfolio_tracker.py` 保持一致：`TARGET_ANNUAL_VOL=16%`、`VOL_FLOOR_PCT=30%`、`MAX_POSITION_PCT=80%`、再平衡阈值5%、双边成本0.2%/边。
-
-### 验证1：LLM信号IC分析（`validate_ic.py`）
-
-检验 `bias_score` 对未来收益是否有统计显著的预测力（需 30+ 条信号样本）。
-
-```bash
-# 本地演示（样本量不足，仅展示框架）
-python3 validate_ic.py
-
-# 完整版：先从服务器拉取日志
-scp -r root@101.201.171.174:/opt/finance-analysis/logs ./logs_server
-python3 validate_ic.py --log-dir logs_server
-
-# 指定回测 signals.csv
-python3 validate_ic.py --signals-csv nvda_portfolio_backtest/signals.csv
-```
-
-解读：`t-stat > 2.0` 表示LLM信号有预测力；`t-stat < 1.5` 表示LLM择时无效，应专注制度过滤。
 
 ---
 
@@ -572,10 +549,6 @@ export NO_PROXY=open.feishu.cn,feishu.cn,api.deepseek.com,dashscope.aliyuncs.com
 - 月线 RSI > 85 → 做多 bias_score ≤ 0.50
 - 减半周期 > 45% 且月 RSI > 70 → 顶部预警，bias_score 额外 -0.10
 
-**性能反馈（来自 `performance.csv`）：**
-- 胜率 < 40% → bias_score 门槛提升至 ≥ 0.65
-- 连续亏损 ≥ 2 次 → 需 bias_score ≥ 0.75 才入场
-
 ---
 
 ## 回测模式说明
@@ -600,7 +573,7 @@ export NO_PROXY=open.feishu.cn,feishu.cn,api.deepseek.com,dashscope.aliyuncs.com
 - **科技股/ETF**：`tech_stock_analysis.py --dual-model --third-model gpt-4o`
 - **BTC**：`btc_analysis.py --dual-model --third-model gpt-4o`
 
-### 标准回测命令（阿里云服务器，双模型，v7）
+### 标准回测命令（阿里云服务器，双模型）
 
 ```bash
 cd /opt/finance-analysis && source .env
@@ -620,9 +593,9 @@ nohup .venv/bin/python3 -u tech_backtest_engine.py \
     --oos-split 0.2 \
     --reproducible \
     --rate-limit 15 \
-    > logs/portfolio_nvda_v7_$(date +%Y%m%d_%H%M).log 2>&1 &
+    > logs/portfolio_nvda_$(date +%Y%m%d_%H%M).log 2>&1 &
 
-# P0.1：5规则极简模式（bias≥0.60/无财报黑名单/无死叉软限/无冷却期）
+# 5规则极简模式（bias≥0.60/无财报黑名单/无死叉软限/无冷却期）
 nohup .venv/bin/python3 -u tech_backtest_engine.py \
     --ticker NVDA \
     --start 2025-02-01 --end 2025-12-31 \
@@ -631,7 +604,7 @@ nohup .venv/bin/python3 -u tech_backtest_engine.py \
     --risk-per-trade 0.02 --step 1 --reproducible --simplified \
     > logs/simplified_nvda_$(date +%Y%m%d_%H%M).log 2>&1 &
 
-# P0.2：Beta底仓模式（EMA200上方持50%底仓 + LLM叠加+30%）
+# Beta底仓模式（EMA200上方持50%底仓 + LLM叠加+30%）
 nohup .venv/bin/python3 -u tech_backtest_engine.py \
     --ticker NVDA \
     --start 2025-02-01 --end 2025-12-31 \
@@ -641,17 +614,17 @@ nohup .venv/bin/python3 -u tech_backtest_engine.py \
     --step 5 --reproducible \
     > logs/beta_floor_nvda_$(date +%Y%m%d_%H%M).log 2>&1 &
 
-# P1.4：封存 2024 Holdout（只运行一次！）
+# 封存 Holdout（只运行一次！）
 python3 freeze_holdout.py             # 执行封存
 python3 freeze_holdout.py --status    # 查看封存状态
 
-# P2：2018-2021 历史泛化验证
+# 2018-2021 历史泛化验证
 bash run_historical_backtest.sh                # 标准模式（NVDA+MSFT+GOOGL）
 bash run_historical_backtest.sh simplified     # 5规则极简模式
 bash run_historical_backtest.sh NVDA           # 只跑 NVDA
 ```
 
-### 标准实盘分析命令（阿里云服务器，三模型，v5）
+### 标准实盘分析命令（阿里云服务器，三模型）
 
 ```bash
 # 科技股三模型分析
@@ -670,7 +643,7 @@ python3 btc_analysis.py --api \
     --model deepseek-reasoner --confirm-model claude-sonnet-4-6
 ```
 
-**已优化的回测参数（v5）：**
+**已优化的回测参数：**
 - 主模型：DeepSeek R1（初筛），确认模型：Claude Sonnet（双模型确认）
 - 连续止损熔断：连续 2 次止损 → 暂停入场 15 个交易日
 - 移动止损：浮盈 ≥5% 移至入场价（保本），≥10% 跟踪至锁定 50% 盈利，不触发硬超时
@@ -808,9 +781,8 @@ python3 btc_analysis.py --api \
 - 与 B&H 对比：NVDA +1.48% vs +80%，MSFT -0.01% vs +17%
 
 **4. 多版本迭代等于多次假设检验（过拟合风险）**
-- 已迭代 v1→v9，每次看结果再改规则 = 对 2025 年路径的隐式拟合
-- 根据 Bonferroni 校正：约 40 次参数调整后，5% 显著性阈值应收紧至 0.001
-- 当前没有真正封存的 holdout 集
+- 已迭代多个版本，每次看结果再改规则 = 对历史路径的隐式拟合
+- 当前没有真正封存的 holdout 集（`freeze_holdout.py` 可解决）
 
 **5. 制度依赖性强**
 - 熊市（2022）：有效，+39-44% Alpha vs B&H ✅
@@ -823,9 +795,8 @@ python3 btc_analysis.py --api \
 |--------|------|------|------|
 | 🔴 P0 | BAD_RR 大量拦截有效信号 | stop/target 用信号日收盘算，入场用次日开盘 | 改用「next_open + 2.5×ATR」重算 RR |
 | 🔴 P0 | 样本量不足 | 每年只有 2-4 笔交易 | 多资产多年并跑，目标每资产 60+ 笔 |
-| 🟡 P1 | IC 分析工具不可用 | scipy 未安装 | `pip install scipy` 后运行 `signal_ic_analysis.py` |
-| 🟡 P1 | Walk-forward 工具不可用 | 同上 | 同上 |
-| 🟡 P1 | 无真实 OOS holdout | 所有期间均参与了参数调整 | 封存 2024 全年数据，完全不看 |
+| 🟡 P1 | IC 分析样本量不足 | 本地信号记录少 | 从服务器拉日志后运行 `validate_ic.py --log-dir logs_server` |
+| 🟡 P1 | 无真实 OOS holdout | 所有期间均参与了参数调整 | 运行 `freeze_holdout.py` 封存 2024 全年数据 |
 
 #### 下一步行动（按优先级）
 
@@ -834,7 +805,8 @@ python3 btc_analysis.py --api \
 pip install scipy
 
 # 2. 运行 IC 分析（最直接的信号质量检验）
-python3 signal_ic_analysis.py --ticker NVDA --years 2022 2023 2024
+scp -r root@101.201.171.174:/opt/finance-analysis/logs ./logs_server
+python3 validate_ic.py --log-dir logs_server
 
 # 3. 扩大样本：多资产多年并跑
 python3 tech_backtest_engine.py --ticker NVDA --portfolio --start 2022-01-01 --end 2025-12-31
@@ -850,7 +822,7 @@ python3 tech_backtest_engine.py --ticker NVDA --portfolio --start 2022-01-01 --e
 # 基础依赖
 pip install yfinance pandas numpy anthropic openai curl_cffi urllib3 httpx
 
-# 量化分析依赖（IC 分析、walk-forward 测试所需）
+# 量化分析依赖（IC 分析所需）
 pip install scipy statsmodels
 
 # 或直接从 requirements.txt 安装
@@ -876,7 +848,6 @@ pip install -r requirements.txt
 ## 常见注意事项
 
 - **SSL 证书**：`urllib3.disable_warnings` + `curl_cffi` 的 `verify=False` 用于企业 VPN/代理环境，生产环境建议启用验证。
-- **yfinance SQLite 冲突**：`backtest_engine.py` 用 `tempfile.mkdtemp()` 为每次运行创建独立缓存目录，避免并发冲突。
 - **数据重试**：`_download_with_retry` 最多重试 5 次，间隔递增，应对网络抖动。
 - **Parquet 持久化缓存**：`tech_backtest_engine.py` 将 yfinance 数据缓存至 `data_cache/*.parquet`，重跑回测无需重新下载，避免 Yahoo Finance 429 限流。
 - **Yahoo Finance 限流**：密集回测可能触发 429，等待 2–4 小时自动解封；缓存覆盖范围不足时才会触发下载。
@@ -891,5 +862,4 @@ pip install -r requirements.txt
   ```
   `api.openai-proxy.org`（Claude + GPT 聚合平台）直连 ECS 可达，**不能**走 SS 代理，否则 TLS 握手报 `SSL: UNEXPECTED_EOF_WHILE_READING` 错误。
 - **`portfolio.json` 维护**：每次开仓/平仓后需手动更新，或在交易接口对接完成后自动同步。
-- **`backtest_responses/` 目录**：需用户手动创建并填充，或通过全自动模式由程序自动完成。
 - **新增资产**：在 `assets_config.py` 注册 + 在 `tech_stock_analysis.py` 的 `_INDUSTRY_CONTEXT` 添加专属上下文（可选）。
