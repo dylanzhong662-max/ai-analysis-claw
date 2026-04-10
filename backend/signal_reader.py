@@ -7,18 +7,18 @@ from typing import Optional, Dict
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 SIGNAL_FILES = {
-    "GOLD": "gold_api_output.txt",
-    "SILVER": "slv_api_output.txt",
-    "COPPER": "copx_api_output.txt",
-    "RARE_EARTH": "remx_api_output.txt",
-    "OIL": "uso_api_output.txt",
-    "BTC": "btc_api_output.txt",
-    "GOOGL": "googl_api_output.txt",
-    "MSFT": "msft_api_output.txt",
-    "NVDA": "nvda_api_output.txt",
-    "AAPL": "aapl_api_output.txt",
-    "META": "meta_api_output.txt",
-    "AMZN": "amzn_api_output.txt",
+    "GOLD": "outputs/gold_api_output.txt",
+    "SILVER": "outputs/slv_api_output.txt",
+    "COPPER": "outputs/copx_api_output.txt",
+    "RARE_EARTH": "outputs/remx_api_output.txt",
+    "OIL": "outputs/uso_api_output.txt",
+    "BTC": "outputs/btc_api_output.txt",
+    "GOOGL": "outputs/googl_api_output.txt",
+    "MSFT": "outputs/msft_api_output.txt",
+    "NVDA": "outputs/nvda_api_output.txt",
+    "AAPL": "outputs/aapl_api_output.txt",
+    "META": "outputs/meta_api_output.txt",
+    "AMZN": "outputs/amzn_api_output.txt",
 }
 
 SCRIPT_MAP = {

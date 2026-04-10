@@ -28,11 +28,11 @@ import requests
 FEISHU_WEBHOOK_URL = os.environ.get("FEISHU_WEBHOOK_URL", "")
 
 OUTPUT_FILES = {
-    "gold":  "gold_api_output.txt",
-    "btc":   "btc_api_output.txt",
-    "googl": "googl_api_output.txt",
-    "nvda":  "nvda_api_output.txt",
-    "amzn":  "amzn_api_output.txt",
+    "gold":  "outputs/gold_api_output.txt",
+    "btc":   "outputs/btc_api_output.txt",
+    "googl": "outputs/googl_api_output.txt",
+    "nvda":  "outputs/nvda_api_output.txt",
+    "amzn":  "outputs/amzn_api_output.txt",
 }
 
 # ─────────────────────────────────────────────
@@ -398,14 +398,14 @@ def build_message(mode: str) -> dict:
     if gold_data:
         content.extend(format_gold_block(gold_data, mode))
     else:
-        content.append([{"tag": "text", "text": "\n[黄金] 数据文件缺失，请检查 gold_api_output.txt"}])
+        content.append([{"tag": "text", "text": "\n[黄金] 数据文件缺失，请检查 outputs/gold_api_output.txt"}])
 
     # BTC
     btc_data = parse_json_from_file(OUTPUT_FILES["btc"])
     if btc_data:
         content.extend(format_btc_block(btc_data, mode))
     else:
-        content.append([{"tag": "text", "text": "\n[BTC] 数据文件缺失，请检查 btc_api_output.txt"}])
+        content.append([{"tag": "text", "text": "\n[BTC] 数据文件缺失，请检查 outputs/btc_api_output.txt"}])
 
     # 科技股（GOOGL / NVDA / AMZN）
     for key, label in [("googl", "GOOGL"), ("nvda", "NVDA"), ("amzn", "AMZN")]:

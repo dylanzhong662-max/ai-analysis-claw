@@ -1493,7 +1493,8 @@ def main():
     prompt = build_prompt(daily, weekly, monthly, perf_metrics=perf_metrics, macro=macro, paxg=paxg)
 
     # ── 方案一：保存提示词文件（默认）──
-    output_path = "gold_prompt_output.txt"
+    os.makedirs("outputs", exist_ok=True)
+    output_path = "outputs/gold_prompt_output.txt"
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(prompt)
     print(f"\n提示词已保存到文件: {output_path}")
@@ -1522,7 +1523,7 @@ def main():
             model = args.model
             analysis = _call_any_model(prompt, model)
 
-        api_output_path = "gold_api_output.txt"
+        api_output_path = "outputs/gold_api_output.txt"
         with open(api_output_path, "w", encoding="utf-8") as f:
             f.write(analysis)
         print("\n" + "=" * 60)
@@ -1545,7 +1546,7 @@ def main():
                 )
             else:
                 print("\n[警告] 无法从 API 响应中解析 GOLD 交易信号，跳过交易。")
-                print("  请检查 gold_api_output.txt 确认 LLM 输出格式是否正确。")
+                print("  请检查 outputs/gold_api_output.txt 确认 LLM 输出格式是否正确。")
     else:
         # ── 只生成提示词文件，供手动使用 ──
         print("\n" + "=" * 60)

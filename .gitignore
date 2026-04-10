@@ -7,9 +7,8 @@ __pycache__/
 *.pyc
 *.pyo
 
-# ── 运行时输出文件（每日自动生成，不需要提交）──
-*_api_output.txt
-*_prompt_output.txt
+# ── 运行时输出文件（每日自动生成，统一存放于 outputs/）──
+outputs/
 
 # 市场扫描输出
 market_scan_output.json

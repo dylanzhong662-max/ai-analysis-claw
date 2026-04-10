@@ -1801,7 +1801,8 @@ def main():
     )
 
     # ── 保存提示词 ──
-    output_path = f"{ticker.lower()}_prompt_output.txt"
+    os.makedirs("outputs", exist_ok=True)
+    output_path = os.path.join("outputs", f"{ticker.lower()}_prompt_output.txt")
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(prompt)
     print(f"提示词已保存到: {output_path}")
@@ -1829,7 +1830,7 @@ def main():
                     "justification": f"[Python前置过滤] {pre_reason}",
                 }]
             }, ensure_ascii=False, indent=2)
-            api_output_path = f"{ticker.lower()}_api_output.txt"
+            api_output_path = os.path.join("outputs", f"{ticker.lower()}_api_output.txt")
             with open(api_output_path, "w", encoding="utf-8") as f:
                 f.write(no_trade_result)
             print(no_trade_result)
@@ -1857,7 +1858,7 @@ def main():
         else:
             analysis = _call_any_model(prompt, args.model, system_prompt=system_prompt)
 
-        api_output_path = f"{ticker.lower()}_api_output.txt"
+        api_output_path = os.path.join("outputs", f"{ticker.lower()}_api_output.txt")
         with open(api_output_path, "w", encoding="utf-8") as f:
             f.write(analysis)
         print("\n" + "=" * 60)

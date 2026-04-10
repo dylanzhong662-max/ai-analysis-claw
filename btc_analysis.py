@@ -1310,7 +1310,8 @@ def main():
     prompt = build_prompt(daily, weekly, monthly, ctx=ctx, fear_greed=fg, funding_rate=fr)
 
     # 保存提示词
-    output_path = "btc_prompt_output.txt"
+    os.makedirs("outputs", exist_ok=True)
+    output_path = "outputs/btc_prompt_output.txt"
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(prompt)
     print(f"\n提示词已保存: {output_path}")
@@ -1335,7 +1336,7 @@ def main():
         else:
             analysis = _call_any_model(prompt, args.model)
 
-        api_output_path = "btc_api_output.txt"
+        api_output_path = "outputs/btc_api_output.txt"
         with open(api_output_path, "w", encoding="utf-8") as f:
             f.write(analysis)
         print("\n" + "=" * 60)

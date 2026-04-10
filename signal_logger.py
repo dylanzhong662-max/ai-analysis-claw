@@ -25,14 +25,14 @@ SIGNAL_LOG = Path("live_signal_log.csv")
 
 # 资产 → output 文件映射（与 assets_config.py 一致）
 ASSET_OUTPUT_MAP = {
-    "NVDA":  "nvda_api_output.txt",
-    "MSFT":  "msft_api_output.txt",
-    "GOOGL": "googl_api_output.txt",
-    "AAPL":  "aapl_api_output.txt",
-    "META":  "meta_api_output.txt",
-    "AMZN":  "amzn_api_output.txt",
-    "GOLD":  "gold_api_output.txt",
-    "BTC":   "btc_api_output.txt",
+    "NVDA":  "outputs/nvda_api_output.txt",
+    "MSFT":  "outputs/msft_api_output.txt",
+    "GOOGL": "outputs/googl_api_output.txt",
+    "AAPL":  "outputs/aapl_api_output.txt",
+    "META":  "outputs/meta_api_output.txt",
+    "AMZN":  "outputs/amzn_api_output.txt",
+    "GOLD":  "outputs/gold_api_output.txt",
+    "BTC":   "outputs/btc_api_output.txt",
 }
 
 FIELDNAMES = [
