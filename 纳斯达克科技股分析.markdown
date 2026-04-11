@@ -221,6 +221,8 @@ For EVERY `long` or `short` decision, specify:
 5. **bias_score** (float, 0–1): Conviction incorporating all three dimensions
 6. **risk_reward_ratio** (float): ≥ 2.0 required; if < 2.0 → change action to `no_trade`
 
+> **Pre-calculated anchor rule**: When "Precomputed Entry Anchors" are provided in the input data (Entry Zone, Stop Loss, Profit Target), map them directly to the JSON fields. Compute risk_reward_ratio using the **midpoint** of the entry zone: `(profit_target − entry_midpoint) / (entry_midpoint − stop_loss)` for long. Do NOT recalculate from scratch when anchors are already provided.
+
 
 ---
 
@@ -272,7 +274,7 @@ Return your analysis as a **valid JSON object** with these exact fields:
         "analyst_consensus": "<consensus rating, PT upside, recent changes>",
         "valuation_context": "<Forward P/E vs historical, PEG, revenue growth trend>",
         "macro_catalyst": "<primary macro driver for this stock right now>",
-        "competitive_intelligence": "<AI cycle, market share, regulatory, China exposure>"
+        "competitive_intelligence": "<AI cycle, market share, regulatory, China exposure — ONLY based on data explicitly provided in this input. For time-sensitive metrics (delivery schedules, quarterly market share %, specific product ramp rates) not present in the provided data, output the sub-item as 'N/A — not in provided context'. Do NOT infer from pre-training knowledge for 2025/2026 operational data.>"
       },
 
       "justification": "<max 300 characters — synthesize all three dimensions>"
@@ -303,6 +305,7 @@ Return your analysis as a **valid JSON object** with these exact fields:
 - **risk_reward_ratio < 2.0**: Insufficient reward — no_trade
 - **stop_loss < 2.0×weekly ATR-14 from entry**: Too tight for medium-term hold — no_trade
 - **Mean-Reverting regime**: Historical win rate near 0% — no_trade
+- **RAG/News Relevance**: Before using any news item to adjust bias_score or populate `macro_catalyst`, verify it explicitly mentions the target stock's company name, ticker symbol, or a primary product. If a news snippet is about an unrelated company or asset (e.g., a gold mining firm when analyzing NVDA), assign it weight=0 and ignore it entirely.
 
 ## Score Adjustment Rules
 - **Death cross + price ≥ weekly EMA200 (Trending-Recovery)**: Allow long, bias_score ≤ 0.60

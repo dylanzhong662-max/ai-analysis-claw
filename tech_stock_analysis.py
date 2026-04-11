@@ -1291,7 +1291,7 @@ def build_prompt_equity(
 | EMA-50 (W) | {_v(w_ema50)} | {ema50_bias} |
 | EMA-200 (W) | {_v(w_ema200)} | {ema200_bias} |
 | EMA Cross (50/200 W) | {ema_cross_status} | Long-term trend direction |
-| MACD (W) | {_v(w_macd)} | {'Positive — bullish momentum' if w_macd and w_macd > 0 else 'Negative — bearish momentum'} |
+| MACD (W) line value | {_v(w_macd)} | {'MACD line > 0 (fast EMA above slow EMA)' if w_macd and w_macd > 0 else 'MACD line < 0 (fast EMA below slow EMA)'} — cross vs signal line: see §1.4 |
 | RSI-14 (W) | {_v(w_rsi14)} | {'Overbought >70, caution on longs' if w_rsi14 and w_rsi14 > 70 else ('Oversold <30, watch for bounce' if w_rsi14 and w_rsi14 < 30 else 'Neutral 30–70')} |
 | RSI-7 (W) | {_v(w_rsi7)} | {'Extremely overbought >80' if w_rsi7 and w_rsi7 > 80 else ('Extremely oversold <20' if w_rsi7 and w_rsi7 < 20 else 'Normal range')} |
 | ADX (W) | {_v(w_adx)} | {'Strong trend >25' if w_adx and w_adx > 25 else ('Weak/choppy <20' if w_adx and w_adx < 20 else 'Trend forming 20–25')} |

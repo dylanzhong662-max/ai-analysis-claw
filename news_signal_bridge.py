@@ -125,14 +125,46 @@ def _fetch_rag_news(
             )
             if resp2.status_code == 200:
                 results2 = resp2.json().get("results", [])
-                print(f"  [RAG] {ticker}: asset_filter 无结果，语义搜索获取 {len(results2)} 条")
-                return results2
+                # Client-side relevance filter: only keep results that mention
+                # the target ticker's keywords — prevents unrelated companies
+                # (e.g., gold mining stocks) from polluting NVDA/MSFT analysis
+                kws = _ASSET_KEYWORDS.get(ticker.upper(), [ticker])
+                results2_filtered = [
+                    r for r in results2
+                    if any(kw.lower() in (r.get("chunk_text") or "").lower() for kw in kws)
+                ]
+                if results2_filtered:
+                    print(f"  [RAG] {ticker}: 语义搜索获取 {len(results2)} 条，相关性过滤后保留 {len(results2_filtered)} 条")
+                    return results2_filtered
+                else:
+                    print(f"  [RAG] {ticker}: 语义搜索结果均与 {ticker} 无关，过滤后为空，跳过注入")
+                    return []
         else:
             print(f"  [RAG] {ticker}: API 返回 {resp.status_code}")
     except Exception as e:
         print(f"  [RAG] {ticker}: 请求失败 ({e})")
 
     return []
+
+
+# SEC EDGAR 样板文本特征（地址/表头/元数据，无实质内容）
+_SEC_BOILERPLATE_SIGNALS = [
+    "mailing address", "business address", "street1", "central index key",
+    "accession number", "conformed submission type", "form type", "filer id",
+    "zip code", "state of incorporation",
+]
+
+
+def _is_sec_boilerplate(chunk_text: str) -> bool:
+    """
+    Detect SEC EDGAR filing header/address chunks that contain no material content.
+    Returns True if the text is boilerplate (address, filing metadata, etc.).
+    """
+    if not chunk_text or len(chunk_text.strip()) < 20:
+        return True
+    text_lower = chunk_text.lower()
+    hits = sum(1 for pat in _SEC_BOILERPLATE_SIGNALS if pat in text_lower)
+    return hits >= 2  # ≥2 boilerplate patterns = almost certainly header, not material event
 
 
 def _rag_results_to_signals(rag_results: list[dict]) -> list[dict]:
@@ -158,6 +190,10 @@ def _rag_results_to_signals(rag_results: list[dict]) -> list[dict]:
     for r in rag_results:
         meta = r.get("metadata") or {}
 
+        chunk = r.get("chunk_text") or ""
+        if _is_sec_boilerplate(chunk):
+            continue  # Skip SEC boilerplate (address/header) — no material content
+
         importance = float(meta.get("importance_score", 0.3))
         sentiment  = meta.get("sentiment", "neutral")
 
@@ -176,7 +212,11 @@ def _rag_results_to_signals(rag_results: list[dict]) -> list[dict]:
             else "sentiment"
         )
 
-        is_structural = ("sec_edgar" in source_name) or (importance >= 0.8)
+        # is_structural only when SEC content has high importance AND is not boilerplate
+        is_structural = (
+            (("sec_edgar" in source_name) and importance >= 0.6)
+            or (importance >= 0.8)
+        )
 
         published = (meta.get("published_at") or "")[:16]
         reason = (r.get("chunk_text") or "")[:200]   # English original for prompt injection
