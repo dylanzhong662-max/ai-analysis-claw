@@ -23,15 +23,19 @@ grep -v "run_daily.sh\|run_weekly.sh\|finance-analysis" /tmp/crontab_backup.txt 
 
 # 添加新的定时任务
 # 说明：
-#   每天 08:00 CST = 00:00 UTC  → 美股前一交易日收盘数据已完整
-#   每周一 08:30 CST = 00:30 UTC → 比每日任务晚 30 分钟，避免冲突
+#   阿里云 ECS 默认时区为 CST（UTC+8），crontab 按服务器本地时间执行，无需换算 UTC
+#   每天 10:00 CST → 早盘前，亚盘数据已完整
+#   每天 19:00 CST → 美股开盘前，全球主要市场收盘数据已完整
+#   每周一 08:30 CST → 周报，早于早盘日报
 cat >> /tmp/crontab_new.txt << EOF
 
-# ── 金融分析定时任务 ──
-# 每天 08:00 CST (00:00 UTC)：日报
-0 0 * * * bash ${SCRIPT_DIR}/run_daily.sh >> ${SCRIPT_DIR}/logs/cron.log 2>&1
-# 每周一 08:30 CST (00:30 UTC Mon)：周报
-30 0 * * 1 bash ${SCRIPT_DIR}/run_weekly.sh >> ${SCRIPT_DIR}/logs/cron.log 2>&1
+# ── 金融分析定时任务（时间均为服务器本地时间 CST/UTC+8）──
+# 每天 10:00 CST：早盘日报
+0 10 * * * bash ${SCRIPT_DIR}/run_daily.sh >> ${SCRIPT_DIR}/logs/cron.log 2>&1
+# 每天 19:00 CST：晚盘日报
+0 19 * * * bash ${SCRIPT_DIR}/run_daily.sh >> ${SCRIPT_DIR}/logs/cron.log 2>&1
+# 每周一 08:30 CST：周报
+30 8 * * 1 bash ${SCRIPT_DIR}/run_weekly.sh >> ${SCRIPT_DIR}/logs/cron.log 2>&1
 
 EOF
 

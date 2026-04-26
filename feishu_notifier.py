@@ -2,7 +2,7 @@
 飞书通知器 - 解析分析输出文件并发送到飞书群机器人 Webhook
 
 运行方式:
-    python feishu_notifier.py --mode daily          # 当日汇总（黄金 + BTC）
+    python feishu_notifier.py --mode daily          # 当日汇总（所有 daily_scan=True 资产）
     python feishu_notifier.py --mode weekly         # 每周汇总（更详细）
     python feishu_notifier.py --mode test           # 发送测试消息，验证 Webhook 连通性
 
@@ -17,6 +17,7 @@
 import json
 import os
 import re
+import time
 import argparse
 from datetime import datetime
 
@@ -27,13 +28,21 @@ import requests
 # ─────────────────────────────────────────────
 FEISHU_WEBHOOK_URL = os.environ.get("FEISHU_WEBHOOK_URL", "")
 
-OUTPUT_FILES = {
-    "gold":  "outputs/gold_api_output.txt",
-    "btc":   "outputs/btc_api_output.txt",
-    "googl": "outputs/googl_api_output.txt",
-    "nvda":  "outputs/nvda_api_output.txt",
-    "amzn":  "outputs/amzn_api_output.txt",
-}
+# 动态读取资产注册表，无需手动维护路径
+try:
+    from assets_config import ASSET_UNIVERSE, get_daily_assets
+    _ASSET_CONFIG_AVAILABLE = True
+except ImportError:
+    _ASSET_CONFIG_AVAILABLE = False
+    ASSET_UNIVERSE = {}
+
+# 推送分组顺序（按资产类别划分，每批发一条飞书消息）
+# 顺序影响推送顺序，可随意调整
+PUSH_GROUPS = [
+    ("大宗商品 & 加密货币", ["GOLD", "SILVER", "COPPER", "RARE_EARTH", "OIL", "BTC"]),
+    ("Mag-7 科技股",        ["GOOGL", "MSFT", "NVDA", "AAPL", "META", "AMZN", "TSLA"]),
+    ("半导体 & 能源",       ["AMD", "QCOM", "INTC", "DELL", "XOM", "HYNIX"]),
+]
 
 # ─────────────────────────────────────────────
 # JSON 解析（兼容 markdown code block 格式）
@@ -55,9 +64,9 @@ def _repair_json(text: str) -> str:
             in_string = not in_string
             out.append(ch)
         elif in_string and ch == "\n":
-            out.append("\\n")   # 转义换行
+            out.append("\\n")
         elif in_string and ch == "\r":
-            pass                # 丢弃回车
+            pass
         else:
             out.append(ch)
     return "".join(out)
@@ -65,21 +74,17 @@ def _repair_json(text: str) -> str:
 
 def parse_json_from_file(filepath: str) -> dict | None:
     if not os.path.exists(filepath):
-        print(f"  [警告] 文件不存在: {filepath}")
         return None
     with open(filepath, "r", encoding="utf-8") as f:
         lines = f.readlines()
 
     content = "".join(lines).strip()
 
-    # 1. 直接解析整个文件
     try:
         return json.loads(content)
     except json.JSONDecodeError:
         pass
 
-    # 2. 逐行扫描，找所有 ```json ... ``` 代码块（兼容截断文件）
-    #    收集所有候选段落，优先从文件末尾往前试
     candidates = []
     in_block = False
     block_lines: list[str] = []
@@ -91,29 +96,24 @@ def parse_json_from_file(filepath: str) -> dict | None:
             block_lines = []
         elif in_block:
             if stripped == "```":
-                # 代码块正常结束
                 candidates.append("".join(block_lines))
                 in_block = False
                 block_lines = []
             else:
                 block_lines.append(line)
 
-    # 文件截断时 block_lines 里有未关闭的块
     if in_block and block_lines:
         candidates.append("".join(block_lines))
 
-    # 从最后一个候选往前，取第一个能解析成功的
     for candidate in reversed(candidates):
         text = candidate.strip()
         if not text:
             continue
-        # 先直接解析，失败则尝试修复换行符，再失败则大括号计数
         for attempt in (text, _repair_json(text)):
             try:
                 return json.loads(attempt)
             except json.JSONDecodeError:
                 pass
-        # 截断的 JSON：大括号计数提取最完整部分后再修复
         start = text.find("{")
         if start == -1:
             continue
@@ -130,17 +130,14 @@ def parse_json_from_file(filepath: str) -> dict | None:
                     except json.JSONDecodeError:
                         break
 
-    # 最终降级：正则提取关键字段（应对 LLM 输出含未转义引号或文件截断）
     result = _regex_extract(content)
     if result:
         return result
 
-    print(f"  [警告] 无法解析 JSON: {filepath}")
     return None
 
 
 def _regex_extract(text: str) -> dict | None:
-    """当 JSON 解析彻底失败时，用正则从原始文本提取关键字段，构造最小可用 dict。"""
     def _str(key: str) -> str | None:
         m = re.search(rf'"{key}"\s*:\s*"([^"]*)"', text)
         return m.group(1) if m else None
@@ -153,11 +150,10 @@ def _regex_extract(text: str) -> dict | None:
         m = re.search(rf'"{key}"\s*:\s*(true|false)', text, re.IGNORECASE)
         return m.group(1).lower() == "true" if m else False
 
-    # 尝试提取公共字段
     action     = _str("action")
     bias_score = _num("bias_score")
     if not action or not bias_score:
-        return None   # 连最基础字段都没有，放弃
+        return None
 
     result: dict = {
         "period": _str("period") or "Unknown",
@@ -204,7 +200,11 @@ def _regex_extract(text: str) -> dict | None:
 # ─────────────────────────────────────────────
 
 def _action_tag(action: str) -> str:
-    return {"long": "做多 [多]", "short": "做空 [空]", "no_trade": "观望 [空仓]"}.get(action, action)
+    return {"long": "做多 ▲", "short": "做空 ▼", "no_trade": "观望 —"}.get(action, action)
+
+
+def _action_emoji(action: str) -> str:
+    return {"long": "▲做多", "short": "▼做空", "no_trade": "— 观望"}.get(action, action)
 
 
 def _trunc(s, n=120) -> str:
@@ -215,7 +215,6 @@ def _trunc(s, n=120) -> str:
 
 
 def _row(label: str, value) -> list:
-    """飞书 rich-text 单行：加粗 label + 普通 value"""
     return [
         {"tag": "text", "un_escape": True, "text": f"{label}: "},
         {"tag": "text", "text": str(value) if value is not None else "N/A"},
@@ -223,7 +222,27 @@ def _row(label: str, value) -> list:
 
 
 def _divider(title: str) -> list:
-    return [{"tag": "text", "text": f"\n{'─' * 20} {title} {'─' * 20}"}]
+    return [{"tag": "text", "text": f"\n{'─' * 18} {title} {'─' * 18}"}]
+
+
+def _get_asset_output_file(asset_key: str) -> str:
+    """从 assets_config 获取资产输出文件路径，找不到则按规则猜测。"""
+    if _ASSET_CONFIG_AVAILABLE and asset_key in ASSET_UNIVERSE:
+        return ASSET_UNIVERSE[asset_key].get("output_file", f"outputs/{asset_key.lower()}_api_output.txt")
+    return f"outputs/{asset_key.lower()}_api_output.txt"
+
+
+def _get_asset_type(asset_key: str) -> str:
+    if _ASSET_CONFIG_AVAILABLE and asset_key in ASSET_UNIVERSE:
+        return ASSET_UNIVERSE[asset_key].get("type", "equity")
+    return "equity"
+
+
+def _get_asset_description(asset_key: str) -> str:
+    if _ASSET_CONFIG_AVAILABLE and asset_key in ASSET_UNIVERSE:
+        cfg = ASSET_UNIVERSE[asset_key]
+        return cfg.get("description", cfg.get("ticker", asset_key))
+    return asset_key
 
 
 # ─────────────────────────────────────────────
@@ -247,7 +266,7 @@ def format_gold_block(data: dict, mode: str = "daily") -> list[list]:
     just    = a.get("justification", "")
 
     lines = [
-        _divider("黄金 GOLD / PAXG"),
+        _divider("GOLD 黄金"),
         _row("市场情绪", ms),
         _row("市场制度", regime),
         _row("操作建议", _action_tag(action)),
@@ -265,7 +284,7 @@ def format_gold_block(data: dict, mode: str = "daily") -> list[list]:
             _row("技术面", _trunc(tech, 150)),
         ]
 
-    lines.append(_row("综合判断", _trunc(just, 250)))
+    lines.append(_row("综合判断", _trunc(just, 200)))
     return lines
 
 
@@ -292,7 +311,6 @@ def format_btc_block(data: dict, mode: str = "daily") -> list[list]:
     cycle_c  = a.get("cycle_context", "")
     just     = a.get("justification", "")
 
-    # 利空风险汇总（最多3条高/中风险）
     risks = a.get("key_bearish_risks", [])
     high_risks = [r for r in risks if r.get("severity") in ("High", "Medium")][:3]
     risk_str = " | ".join(
@@ -300,7 +318,7 @@ def format_btc_block(data: dict, mode: str = "daily") -> list[list]:
     ) or "无重大利空"
 
     lines = [
-        _divider("比特币 BTC"),
+        _divider("BTC 比特币"),
         _row("减半周期", cycle),
         _row("宏观环境", macro_e),
         _row("恐惧贪婪", f"{fg} - {fg_cls}"),
@@ -318,21 +336,21 @@ def format_btc_block(data: dict, mode: str = "daily") -> list[list]:
     if mode == "weekly":
         lines.append(_row("周期背景", _trunc(cycle_c, 200)))
 
-    lines.append(_row("综合判断", _trunc(just, 250)))
+    lines.append(_row("综合判断", _trunc(just, 200)))
     return lines
 
 
 # ─────────────────────────────────────────────
-# 科技股信号格式化
+# 通用资产信号格式化（股票 / ETF / 大宗商品 ETF）
 # ─────────────────────────────────────────────
 
-def format_tech_block(data: dict, mode: str = "daily") -> list[list]:
-    ticker  = data.get("stock_ticker", "STOCK")
-    ms      = data.get("overall_market_sentiment", "N/A")
-    qqq     = data.get("qqq_assessment", "")
-    rates   = data.get("macro_rate_environment", "")
+def format_asset_block(asset_key: str, data: dict, mode: str = "daily") -> list[list]:
+    ticker    = data.get("stock_ticker", "") or data.get("asset_ticker", "") or asset_key
+    ms        = data.get("overall_market_sentiment", "N/A")
+    qqq       = data.get("qqq_assessment", "")
+    rates     = data.get("macro_rate_environment", "")
     earn_flag = data.get("earnings_risk_flag", False)
-    earn_days = data.get("earnings_days_away", "N/A")
+    earn_days = data.get("earnings_days_away", None)
 
     a        = (data.get("asset_analysis") or [{}])[0]
     action   = a.get("action", "N/A")
@@ -343,21 +361,30 @@ def format_tech_block(data: dict, mode: str = "daily") -> list[list]:
     rr       = a.get("risk_reward_ratio", "N/A")
     regime   = a.get("regime", "N/A")
     hold_wks = a.get("estimated_holding_weeks", "N/A")
+    pos      = a.get("position_size_pct", a.get("position_sizing", "N/A"))
     just     = a.get("justification", "")
 
-    intel    = a.get("intelligence_analysis", {})
-    analyst  = intel.get("analyst_consensus", "")
+    intel     = a.get("intelligence_analysis", {})
+    analyst   = intel.get("analyst_consensus", "")
     valuation = intel.get("valuation_context", "")
 
-    earn_str = f"距财报 {earn_days} 天  {'[高风险]' if earn_flag else '[平静期]'}"
+    desc = _get_asset_description(asset_key)
+    label = f"{ticker}" if ticker == desc else f"{ticker} {desc}"
 
     lines = [
-        _divider(f"科技股 {ticker}"),
+        _divider(label),
         _row("市场情绪", ms),
         _row("市场制度", regime),
-        _row("财报风险", earn_str),
+    ]
+
+    if earn_days is not None:
+        earn_str = f"距财报 {earn_days} 天  {'[高风险]' if earn_flag else '[平静期]'}"
+        lines.append(_row("财报风险", earn_str))
+
+    lines += [
         _row("操作建议", _action_tag(action)),
         _row("偏向得分", bias),
+        _row("仓位建议", pos),
         _row("预计持仓", f"{hold_wks} 周"),
         _row("入场区间", entry),
         _row("止盈目标", target),
@@ -373,15 +400,16 @@ def format_tech_block(data: dict, mode: str = "daily") -> list[list]:
             _row("估值背景", _trunc(valuation, 120)),
         ]
 
-    lines.append(_row("综合判断", _trunc(just, 250)))
+    lines.append(_row("综合判断", _trunc(just, 200)))
     return lines
 
 
 # ─────────────────────────────────────────────
-# 组装飞书消息体
+# 汇总信号表（第一条消息）
 # ─────────────────────────────────────────────
 
-def build_message(mode: str) -> dict:
+def build_summary_message(mode: str, all_results: list[dict]) -> dict:
+    """构造第一条消息：信号汇总表"""
     today = datetime.now().strftime("%Y-%m-%d %H:%M")
     title_map = {
         "daily":  f"每日金融分析  {datetime.now().strftime('%Y-%m-%d')}",
@@ -389,46 +417,110 @@ def build_message(mode: str) -> dict:
     }
     title = title_map.get(mode, "金融分析报告")
 
-    content: list[list] = [
-        [{"tag": "text", "text": f"生成时间: {today}"}],
-    ]
-
-    # 黄金
-    gold_data = parse_json_from_file(OUTPUT_FILES["gold"])
-    if gold_data:
-        content.extend(format_gold_block(gold_data, mode))
-    else:
-        content.append([{"tag": "text", "text": "\n[黄金] 数据文件缺失，请检查 outputs/gold_api_output.txt"}])
-
-    # BTC
-    btc_data = parse_json_from_file(OUTPUT_FILES["btc"])
-    if btc_data:
-        content.extend(format_btc_block(btc_data, mode))
-    else:
-        content.append([{"tag": "text", "text": "\n[BTC] 数据文件缺失，请检查 outputs/btc_api_output.txt"}])
-
-    # 科技股（GOOGL / NVDA / AMZN）
-    for key, label in [("googl", "GOOGL"), ("nvda", "NVDA"), ("amzn", "AMZN")]:
-        tech_data = parse_json_from_file(OUTPUT_FILES[key])
-        if tech_data:
-            content.extend(format_tech_block(tech_data, mode))
+    long_list, watch_list, short_list, fail_list = [], [], [], []
+    for item in all_results:
+        key    = item["key"]
+        action = item.get("action", "?")
+        bias   = item.get("bias", "?")
+        rr     = item.get("rr", "—")
+        regime = item.get("regime", "?")
+        if item.get("failed"):
+            fail_list.append(key)
+            continue
+        rr_str = f"R:R={rr}" if rr not in (None, "N/A", "?", "—") else "—"
+        bias_str = f"{bias:.2f}" if isinstance(bias, float) else str(bias)
+        line = f"{key}({bias_str},{rr_str})"
+        if action == "long":
+            long_list.append(line)
+        elif action == "short":
+            short_list.append(line)
         else:
-            content.append([{"tag": "text", "text": f"\n[{label}] 数据文件缺失，请检查 {OUTPUT_FILES[key]}"}])
+            watch_list.append(line)
 
-    # 尾部
-    content.append([{"tag": "text", "text": "\n以上为 LLM 生成的分析建议，仅供参考，不构成投资建议。"}])
+    content: list[list] = [
+        [{"tag": "text", "text": f"生成时间: {today}  |  资产总数: {len(all_results)}"}],
+        [{"tag": "text", "text": f"\n▲ 做多 ({len(long_list)}): " + ("  ".join(long_list) if long_list else "无")}],
+        [{"tag": "text", "text": f"▼ 做空 ({len(short_list)}): " + ("  ".join(short_list) if short_list else "无")}],
+        [{"tag": "text", "text": f"— 观望 ({len(watch_list)}): " + ("  ".join(watch_list) if watch_list else "无")}],
+    ]
+    if fail_list:
+        content.append([{"tag": "text", "text": f"⚠ 解析失败: {', '.join(fail_list)}"}])
+
+    content.append([{"tag": "text", "text": "\n详情见后续消息 ↓"}])
 
     return {
         "msg_type": "post",
-        "content": {
-            "post": {
-                "zh_cn": {
-                    "title": title,
-                    "content": content,
-                }
-            }
-        },
+        "content": {"post": {"zh_cn": {"title": title, "content": content}}},
     }
+
+
+# ─────────────────────────────────────────────
+# 分组详情消息
+# ─────────────────────────────────────────────
+
+def build_group_message(group_name: str, asset_keys: list[str],
+                        mode: str, date_str: str) -> dict:
+    """构造某一分组的详情消息"""
+    content: list[list] = []
+
+    for asset_key in asset_keys:
+        fpath = _get_asset_output_file(asset_key)
+        data  = parse_json_from_file(fpath)
+
+        if data is None:
+            content.append([{"tag": "text", "text": f"\n[{asset_key}] 数据文件缺失或解析失败: {fpath}"}])
+            continue
+
+        asset_type = _get_asset_type(asset_key)
+        if asset_key == "GOLD":
+            content.extend(format_gold_block(data, mode))
+        elif asset_key == "BTC":
+            content.extend(format_btc_block(data, mode))
+        else:
+            content.extend(format_asset_block(asset_key, data, mode))
+
+    if not content:
+        return None
+
+    content.append([{"tag": "text", "text": "\n以上为 LLM 生成分析，仅供参考，不构成投资建议。"}])
+
+    return {
+        "msg_type": "post",
+        "content": {"post": {"zh_cn": {
+            "title": f"{group_name}  {date_str}",
+            "content": content,
+        }}},
+    }
+
+
+# ─────────────────────────────────────────────
+# 收集所有资产结果（用于汇总表）
+# ─────────────────────────────────────────────
+
+def collect_all_results() -> list[dict]:
+    """遍历所有 daily_scan=True 资产，提取核心字段用于汇总表。"""
+    results = []
+    if _ASSET_CONFIG_AVAILABLE:
+        asset_keys = [k for k, cfg in ASSET_UNIVERSE.items() if cfg.get("daily_scan", False)]
+    else:
+        # 兜底：遍历所有已知分组
+        asset_keys = []
+        for _, keys in PUSH_GROUPS:
+            asset_keys.extend(keys)
+
+    for key in asset_keys:
+        fpath = _get_asset_output_file(key)
+        data  = parse_json_from_file(fpath)
+        if data is None:
+            results.append({"key": key, "failed": True})
+            continue
+        aa     = (data.get("asset_analysis") or [{}])[0]
+        action = aa.get("action", "?")
+        bias   = aa.get("bias_score", "?")
+        rr     = aa.get("risk_reward_ratio", None)
+        regime = aa.get("regime", "?")
+        results.append({"key": key, "action": action, "bias": bias, "rr": rr, "regime": regime})
+    return results
 
 
 # ─────────────────────────────────────────────
@@ -444,15 +536,14 @@ def send_to_feishu(message: dict, webhook_url: str) -> bool:
             timeout=15,
         )
         result = resp.json()
-        # 飞书成功码：StatusCode=0 或 code=0
         if result.get("StatusCode") == 0 or result.get("code") == 0:
-            print("飞书消息发送成功")
+            print("  飞书消息发送成功")
             return True
         else:
-            print(f"飞书消息发送失败: {result}")
+            print(f"  飞书消息发送失败: {result}")
             return False
     except Exception as e:
-        print(f"飞书发送异常: {e}")
+        print(f"  飞书发送异常: {e}")
         return False
 
 
@@ -481,15 +572,44 @@ def main():
         print("示例: export FEISHU_WEBHOOK_URL='https://open.feishu.cn/open-apis/bot/v2/hook/xxx'")
         return
 
+    # ── 连通性测试 ──
     if args.mode == "test":
         msg = {
             "msg_type": "text",
             "content": {"text": f"金融分析系统连接测试 OK\n时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"},
         }
-    else:
-        msg = build_message(args.mode)
+        send_to_feishu(msg, webhook_url)
+        return
 
-    send_to_feishu(msg, webhook_url)
+    # ── 收集所有资产结果 ──
+    print("正在收集所有资产信号...")
+    all_results = collect_all_results()
+
+    date_str = datetime.now().strftime("%Y-%m-%d")
+
+    # ── 第1条：汇总表 ──
+    print("[1/N] 发送信号汇总表...")
+    summary_msg = build_summary_message(args.mode, all_results)
+    send_to_feishu(summary_msg, webhook_url)
+    time.sleep(1)  # 避免飞书频率限制
+
+    # ── 后续：按分组发详情 ──
+    # 只推送有资产输出文件的分组（过滤掉所有资产都未跑的组）
+    total = len(PUSH_GROUPS)
+    for idx, (group_name, asset_keys) in enumerate(PUSH_GROUPS, start=2):
+        # 只保留实际存在输出文件的资产
+        available = [k for k in asset_keys if os.path.exists(_get_asset_output_file(k))]
+        if not available:
+            print(f"[{idx}/{total+1}] {group_name} — 无输出文件，跳过")
+            continue
+
+        print(f"[{idx}/{total+1}] 发送 {group_name} ({len(available)} 个资产)...")
+        msg = build_group_message(group_name, available, args.mode, date_str)
+        if msg:
+            send_to_feishu(msg, webhook_url)
+            time.sleep(1.5)  # 飞书 Webhook 频率限制约 5条/秒
+
+    print("飞书推送全部完成。")
 
 
 if __name__ == "__main__":

@@ -26,6 +26,7 @@
 """
 
 import os
+import re
 import sqlite3
 import json
 from datetime import datetime, timedelta
@@ -33,6 +34,9 @@ from pathlib import Path
 from typing import Optional
 
 import pandas as pd
+
+# 从统一注册表加载关键词，无需在此手动维护
+from assets_config import get_news_keywords, get_news_primary_terms
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -53,21 +57,54 @@ _NEWS_DB_CANDIDATES = [
     "/opt/finance-analysis/n8n_data/database.sqlite",            # 阿里云 ECS 路径
 ]
 
-# 资产关键词映射（与新闻系统 portfolio_config 中的 keywords 对齐）
-_ASSET_KEYWORDS = {
-    "NVDA":  ["NVDA", "Nvidia", "Jensen", "GPU", "H100", "Blackwell", "CUDA"],
-    "MSFT":  ["MSFT", "Microsoft", "Azure", "Copilot", "OpenAI"],
-    "GOOGL": ["GOOGL", "Google", "Alphabet", "Gemini", "YouTube", "Cloud"],
-    "AAPL":  ["AAPL", "Apple", "iPhone", "Vision Pro", "App Store"],
-    "META":  ["META", "Meta", "Facebook", "Instagram", "WhatsApp", "Llama"],
-    "AMZN":  ["AMZN", "Amazon", "AWS", "Bedrock", "Prime"],
-    "BTC":   ["BTC", "Bitcoin", "crypto", "cryptocurrency", "Coinbase"],
-    "GOLD":  ["gold", "XAU", "PAXG", "GLD", "precious metals", "Fed", "FOMC"],
-    "SLV":   ["silver", "SLV", "gold-silver ratio", "precious metals"],
-    "COPX":  ["copper", "COPX", "Chile", "Peru", "PMI", "mining"],
-    "REMX":  ["rare earth", "REMX", "tungsten", "neodymium", "China export"],
-    "USO":   ["oil", "crude", "OPEC", "WTI", "Brent", "EIA", "barrel"],
-}
+# ──────────────────────────────────────────────────────────────────
+# 主名称过滤（精确匹配，必须满足其一）
+# ──────────────────────────────────────────────────────────────────
+# 关键词和主标识符统一从 assets_config.ASSET_UNIVERSE 读取。
+# 新增/删除资产只需改 assets_config.py，此处无需手动同步。
+#
+# 整词匹配规则（\b 边界）：
+#   "Meta"   → 不匹配 "metal"、"metamorphosis"
+#   "gold"   → 不匹配 "Goldman"、"golden"
+#   "copper" → 不匹配 "copperhead"
+#
+# _ASSET_PRIMARY_PATTERNS 在模块加载时一次性编译，后续请求直接复用。
+
+def _build_primary_patterns(ticker: str) -> list[re.Pattern]:
+    """为指定 ticker 编译主标识符正则，从 assets_config 读取。"""
+    terms = get_news_primary_terms(ticker)
+    return [
+        re.compile(r"\b" + re.escape(term) + r"\b", re.IGNORECASE)
+        for term in terms
+    ]
+
+# 模块级缓存：避免同一 ticker 在同一进程中重复编译
+_pattern_cache: dict[str, list[re.Pattern]] = {}
+
+
+def _is_relevant_to_ticker(chunk_text: str, ticker: str) -> bool:
+    """
+    Return True only when chunk_text contains at least one primary identifier
+    (ticker symbol or company main name) as a whole word.
+
+    Patterns are loaded from assets_config.get_news_primary_terms() and cached
+    per-ticker in _pattern_cache. New assets registered in assets_config.py are
+    automatically picked up without any changes here.
+
+    Whole-word regex boundary rules:
+      - "Meta"   matches META news, NOT "metal" / "metamorphosis"
+      - "gold"   matches GOLD news, NOT "Goldman" / "golden"
+      - "NVDA"   matches NVDA news, NOT "NVDA-adjacent" sub-strings
+
+    Secondary keywords (GPU, Cloud, crypto, Fed …) alone are NOT sufficient.
+    """
+    if not chunk_text:
+        return False
+    key = ticker.upper()
+    if key not in _pattern_cache:
+        _pattern_cache[key] = _build_primary_patterns(key)
+    patterns = _pattern_cache[key]
+    return any(pat.search(chunk_text) for pat in patterns)
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -89,7 +126,7 @@ def _fetch_rag_news(
     if not RAG_API_URL or not RAG_API_KEY:
         return []
 
-    keywords = _ASSET_KEYWORDS.get(ticker.upper(), [ticker])
+    keywords = get_news_keywords(ticker.upper())
     query = f"{ticker} {' '.join(keywords[:3])} stock news analysis"
 
     try:
@@ -125,19 +162,20 @@ def _fetch_rag_news(
             )
             if resp2.status_code == 200:
                 results2 = resp2.json().get("results", [])
-                # Client-side relevance filter: only keep results that mention
-                # the target ticker's keywords — prevents unrelated companies
-                # (e.g., gold mining stocks) from polluting NVDA/MSFT analysis
-                kws = _ASSET_KEYWORDS.get(ticker.upper(), [ticker])
+                # Client-side relevance filter: require at least one primary identifier
+                # (ticker symbol or company main name) as a whole word.
+                # Rejects results that only mention generic secondary keywords like
+                # "GPU", "Cloud", "crypto" — these are too broad and cause false matches
+                # (e.g., "gold mining" polluting NVDA, "meta" matching "metal").
                 results2_filtered = [
                     r for r in results2
-                    if any(kw.lower() in (r.get("chunk_text") or "").lower() for kw in kws)
+                    if _is_relevant_to_ticker(r.get("chunk_text") or "", ticker)
                 ]
                 if results2_filtered:
-                    print(f"  [RAG] {ticker}: 语义搜索获取 {len(results2)} 条，相关性过滤后保留 {len(results2_filtered)} 条")
+                    print(f"  [RAG] {ticker}: 语义搜索获取 {len(results2)} 条，主名称过滤后保留 {len(results2_filtered)} 条")
                     return results2_filtered
                 else:
-                    print(f"  [RAG] {ticker}: 语义搜索结果均与 {ticker} 无关，过滤后为空，跳过注入")
+                    print(f"  [RAG] {ticker}: 语义搜索结果均不含 {ticker} 主标识符，过滤后为空，跳过注入")
                     return []
         else:
             print(f"  [RAG] {ticker}: API 返回 {resp.status_code}")

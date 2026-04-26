@@ -63,8 +63,10 @@ ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY", "sk-6BV9Xfa9AJ09pkt0AHF
 ANTHROPIC_BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://api.openai-proxy.org/anthropic")
 ANTHROPIC_MODEL    = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 
-DEEPSEEK_MODELS = {"deepseek-reasoner", "deepseek-chat"}
+DEEPSEEK_MODELS = {"deepseek-reasoner", "deepseek-chat", "deepseek-v4-pro", "deepseek-v4-flash"}
 CLAUDE_MODELS   = {"claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"}
+GEMINI_MODELS   = {"gemini-2.5-pro", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-1.5-pro"}
+GEMINI_BASE_URL = os.environ.get("GEMINI_BASE_URL", "https://api.openai-proxy.org/google")
 
 def _get_api_client():
     if ALIYUN_API_KEY:
@@ -1278,6 +1280,39 @@ def _call_claude_raw(prompt: str, system_prompt: str, rate_limit: int = 20) -> d
     return {}
 
 
+def _call_gemini_raw(prompt: str, system_prompt: str, model: str, rate_limit: int = 20) -> dict:
+    """通过 CloseAI 代理调用 Gemini，返回解析后的信号 dict。"""
+    try:
+        from google import genai
+        from google.genai import types
+    except ImportError:
+        print("  [双模型] google-genai 未安装，跳过确认")
+        return {}
+    client = genai.Client(
+        api_key=ANTHROPIC_API_KEY,
+        http_options={"base_url": GEMINI_BASE_URL},
+    )
+    for attempt in range(3):
+        try:
+            config = types.GenerateContentConfig(
+                max_output_tokens=4096,
+                system_instruction=system_prompt,
+            )
+            resp = client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=config,
+            )
+            raw = resp.text or ""
+            raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+            return parse_signal(raw)
+        except Exception as e:
+            print(f"  [双模型/Gemini] attempt {attempt+1}/3: {e}")
+            if attempt < 2:
+                time.sleep(15 * (attempt + 1))
+    return {}
+
+
 def call_dual_api(prompt: str, primary_model: str, system_prompt: str,
                   rate_limit: int, second_model: str = None,
                   asset_ticker: str = "", dual_threshold: float = 0.60) -> dict:
@@ -1312,6 +1347,8 @@ def call_dual_api(prompt: str, primary_model: str, system_prompt: str,
 
     if second_model in CLAUDE_MODELS or second_model.startswith("claude"):
         confirm_signal = _call_claude_raw(prompt, system_prompt, rate_limit)
+    elif second_model in GEMINI_MODELS or second_model.startswith("gemini"):
+        confirm_signal = _call_gemini_raw(prompt, system_prompt, second_model, rate_limit)
     else:
         confirm_signal = call_api(prompt, second_model, system_prompt, rate_limit)
 
@@ -2813,7 +2850,7 @@ if __name__ == "__main__":
     parser.add_argument("--end",            default="2024-12-31",       help="回测结束日期 YYYY-MM-DD")
     parser.add_argument("--step",           default=1,    type=int,     help="每隔N个交易日触发LLM一次（默认1=每日评估）")
     parser.add_argument("--eval-days",      default=65,   type=int,     help="最长持仓天数（默认65，约3个月，与中长线策略对齐）")
-    parser.add_argument("--model",          default="deepseek-reasoner", help="模型 ID（默认 deepseek-reasoner）")
+    parser.add_argument("--model",          default="deepseek-v4-pro", help="模型 ID（默认 deepseek-v4-pro）")
     parser.add_argument("--rate-limit",     default=20,   type=int,     help="API 调用间隔秒数（默认20）")
     parser.add_argument("--dry-run",        action="store_true",        help="只验证数据，不调用 API")
     parser.add_argument("--resume",         action="store_true",        help="跳过已完成节点，追加合并（旧版用）")

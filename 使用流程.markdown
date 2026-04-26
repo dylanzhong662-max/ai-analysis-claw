@@ -26,8 +26,8 @@ python3 btc_analysis.py --api --model deepseek-reasoner
 ```bash
 python3 tech_stock_analysis.py --ticker GOOGL --api --model deepseek-reasoner
 python3 tech_stock_analysis.py --ticker NVDA --api --model deepseek-reasoner
-python3 tech_stock_analysis.py --ticker MSFT --api
-python3 tech_stock_analysis.py --ticker AAPL --api
+python3 tech_stock_analysis.py --ticker MSFT --api --model deepseek-reasoner
+python3 tech_stock_analysis.py --ticker AAPL --api --model deepseek-reasoner
 ```
 
 #### 大宗商品 ETF（白银 / 铜 / 稀土钨 / 原油）

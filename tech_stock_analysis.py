@@ -42,7 +42,9 @@ DEEPSEEK_API_KEY  = os.environ.get("DEEPSEEK_API_KEY", "sk-9574b3366dfd41178a549
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 
 CLAUDE_MODELS   = {"claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"}
-DEEPSEEK_MODELS = {"deepseek-reasoner", "deepseek-chat"}
+DEEPSEEK_MODELS = {"deepseek-reasoner", "deepseek-chat", "deepseek-v4-pro", "deepseek-v4-flash"}
+GEMINI_MODELS   = {"gemini-2.5-pro", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-1.5-pro"}
+GEMINI_BASE_URL = os.getenv("GEMINI_BASE_URL", "https://api.openai-proxy.org/google")
 OPENAI_MODELS   = {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "o1", "o3-mini"}
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai-proxy.org/v1")
 OPENAI_API_KEY  = os.getenv("OPENAI_API_KEY", ANTHROPIC_API_KEY)
@@ -186,10 +188,20 @@ def describe_macd(ind: dict, tf_label: str = "周线") -> str:
     else:                      cross = "Death Cross ongoing"
     h_vals = hist.iloc[-3:].tolist() if len(hist) >= 3 else []
     if len(h_vals) == 3:
-        if   h_vals[2] > h_vals[1] > h_vals[0]: hist_t = "histogram expanding (momentum strengthening)"
-        elif h_vals[2] < h_vals[1] < h_vals[0]: hist_t = "histogram contracting (momentum weakening)"
-        elif h_vals[2] > 0:                      hist_t = f"histogram positive ({h_vals[2]:.2f})"
-        else:                                    hist_t = f"histogram negative ({h_vals[2]:.2f})"
+        if h_vals[2] > h_vals[1] > h_vals[0]:
+            if h_vals[2] > 0:
+                hist_t = f"histogram expanding upward ({h_vals[2]:.2f}, bullish momentum strengthening)"
+            else:
+                hist_t = f"histogram recovering from negative ({h_vals[2]:.2f}, bearish momentum easing)"
+        elif h_vals[2] < h_vals[1] < h_vals[0]:
+            if h_vals[2] < 0:
+                hist_t = f"histogram expanding downward ({h_vals[2]:.2f}, bearish momentum strengthening)"
+            else:
+                hist_t = f"histogram contracting from positive ({h_vals[2]:.2f}, bullish momentum weakening)"
+        elif h_vals[2] > 0:
+            hist_t = f"histogram positive ({h_vals[2]:.2f})"
+        else:
+            hist_t = f"histogram negative ({h_vals[2]:.2f})"
     else:
         hist_t = ""
     return f"{tf_label} MACD {cross} (MACD={m:.2f}, Signal={s:.2f}); {hist_t}"
@@ -1043,10 +1055,11 @@ def build_prompt_equity(
     # 宏观摘要
     ms = summarize_macro_equity(macro)
 
-    # 52周高低位（基于日线最近252个交易日）
+    # 52周高低位：优先使用 yfinance.info 的真实日内高低点，与 §3.3 估值表保持一致
+    # 避免 §1.1（收盘价滚动计算）与 §3.3（info 日内高低点）出现数字矛盾
     close_d_full = close_d.dropna()
-    high_52w = round(float(close_d_full.tail(252).max()), 2)
-    low_52w  = round(float(close_d_full.tail(252).min()), 2)
+    high_52w = intel.get("52w_high") or round(float(close_d_full.tail(252).max()), 2)
+    low_52w  = intel.get("52w_low")  or round(float(close_d_full.tail(252).min()), 2)
     pct_from_high = round((current_price - high_52w) / high_52w * 100, 1)
     pct_from_low  = round((current_price - low_52w)  / low_52w  * 100, 1)
 
@@ -1210,6 +1223,84 @@ def build_prompt_equity(
 4. **地缘政治风险溢价**：中东冲突升级（霍尔木兹海峡风险）、俄乌战争对俄罗斯出口的影响。
 5. **美元与页岩油成本**：美国页岩油盈亏平衡价格（约 $55-65/桶），DXY 强势对油价的压制。
 """,
+        # ─── 半导体 / 科技硬件 ───
+        "TSLA": """
+### 行业特有分析维度（Tesla）— 更新于 2026Q1
+
+请在 `competitive_intelligence` 字段中，额外关注以下 TSLA 专属因素：
+
+1. **季度交付量 vs 预期**：这是 Tesla 最重要的短期催化剂。实际交付量与华尔街预期的偏差方向，往往决定财报后当日涨跌幅。
+2. **FSD 货币化与监管进展**：Full Self-Driving 订阅渗透率、Robotaxi 商业化时间表（Austin 2025 试点），以及 NHTSA/各州监管批准节奏。
+3. **毛利率趋势**：车辆毛利率（近期受价格战拖累降至约 13-15%），软件/服务收入（FSD、超充网络、保险）能否提供高利润率抵消。
+4. **Optimus 机器人量产**：人形机器人量产节点披露，是否有外部客户订单，市场对此已计入多少期权溢价。
+5. **Elon Musk 品牌风险**：政治活动（DOGE/政府职务）对 Tesla 品牌形象的负面影响，欧洲销量下滑是否加速，是否出现管理层执行力分散风险。
+""",
+        "AMD": """
+### 行业特有分析维度（AMD）— 更新于 2026Q1
+
+请在 `competitive_intelligence` 字段中，额外关注以下 AMD 专属因素：
+
+1. **MI300X/MI350 AI 加速器出货量**：AMD 在数据中心 GPU 市场对 NVDA 的份额追赶进度，大客户（微软 Azure、Meta、Oracle）的 MI300 部署规模是否超预期。
+2. **ROCm 软件生态成熟度**：AMD GPU 的最大劣势是 CUDA 生态护城河。ROCm 与主流 AI 框架（PyTorch/JAX）的兼容性改善，是否吸引更多开发者转移。
+3. **EPYC 服务器 CPU 市占率**：AMD EPYC Genoa/Turin 在云厂商和企业服务器的渗透率，是否维持对 Intel 的份额优势（当前约 25%+）。
+4. **PC 端 Ryzen AI/Strix Point**：AI PC 超级周期能否带动 AMD 消费端处理器出货，与 Intel Core Ultra 和 Qualcomm X Elite 的竞争。
+5. **出口管制影响**：MI300 是否被纳入对华出口限制名单，中国数据中心客户收入敞口及替代方案（MI300 降规版）。
+""",
+        "QCOM": """
+### 行业特有分析维度（Qualcomm）— 更新于 2026Q1
+
+请在 `competitive_intelligence` 字段中，额外关注以下 QCOM 专属因素：
+
+1. **Apple 调制解调器自研进程**：Apple 正在自研基带芯片（已在 iPhone 16e 上部分使用），Qualcomm 当前为 iPhone 提供约 $10-15/部的调制解调器收入。自研芯片 2025-2026 年全面铺开的时间表是 QCOM 估值最大风险。
+2. **Snapdragon X Elite PC 生态**：骁龙 X Elite/X Plus 在 AI PC 市场的份额爬坡，Windows on ARM 软件兼容性改善，是否成为 QCOM 第二增长曲线。
+3. **汽车业务（Snapdragon Digital Chassis）**：车载信息娱乐、ADAS 芯片订单积压（已披露约 $45B 积压），是否成为移动端外的新增长引擎。
+4. **授权业务（QTL）稳定性**：专利许可收入受到中国厂商低价授权协议谈判压力，以及 Arm 许可费争议，高利润率 QTL 业务的持续性。
+5. **IoT 与工业边缘计算**：物联网/工业端 AI 推理芯片需求，以及与 Meta AI 眼镜（Ray-Ban）的独家芯片合作延续性。
+""",
+        "INTC": """
+### 行业特有分析维度（Intel）— 更新于 2026Q1
+
+请在 `competitive_intelligence` 字段中，额外关注以下 INTC 专属因素：
+
+1. **18A 制程良率与客户签约**：Intel Foundry 的旗舰 18A 工艺是能否翻盘的核心。Microsoft、AWS 等外部代工客户是否已下正式生产订单，良率是否达到量产标准（>85%）。
+2. **结构性重组进展**：CEO 变动后的战略调整，产品部门与代工部门是否实质拆分，成本削减（裁员 15%+）能否改善利润率结构。
+3. **Gaudi 3 AI 加速器市场反馈**：Intel 唯一的 AI GPU 产品在云厂商的采用情况，是否获得 Microsoft Azure 或 AWS 的规模订单。
+4. **Core Ultra（Arrow Lake/Lunar Lake）PC 端竞争**：与 AMD Ryzen AI 和 Qualcomm X Elite 在 AI PC 市场的竞争，能否守住 CPU 市占率（约 70%+）。
+5. **台积电依赖度**：Intel 产品线（Lunar Lake/Meteor Lake 等）已外包给台积电生产，内外兼修模式下的战略清晰度与资本配置优先级。
+""",
+        "DELL": """
+### 行业特有分析维度（Dell Technologies）— 更新于 2026Q1
+
+请在 `competitive_intelligence` 字段中，额外关注以下 DELL 专属因素：
+
+1. **AI 服务器订单积压**：基础设施解决方案集团（ISG）AI 优化服务器（搭载 NVIDIA H100/H200/GB200）的订单积压额和出货节奏，是 DELL 估值最强催化剂。云厂商和企业客户的 AI CapEx 周期对 DELL 的直接拉动。
+2. **AI PC 换机周期**：客户端解决方案集团（CSG）商用 PC 是否受 AI PC 功能驱动迎来企业换机潮（2024-2025 Windows 10 支持到期叠加 AI 功能升级）。
+3. **存储业务竞争（PowerStore/PowerFlex）**：全闪存存储市场对 NetApp/Pure Storage 的竞争，AI 工作负载对高性能存储的拉动。
+4. **利润率结构**：ISG 毛利率（约 12-15%）低于软件公司，但 AI 服务器高单价能否带动绝对盈利增长？服务与支持业务高利润率的占比提升趋势。
+5. **VMware 分离影响**：Broadcom 完成 VMware 收购后，Dell 失去 VMware 股权收益（此前占 EPS 约 10%），市场是否已完全消化这一负面影响。
+""",
+        "XOM": """
+### 行业特有分析维度（ExxonMobil）— 更新于 2026Q1
+
+请在 `competitive_intelligence` 字段中，额外关注以下 XOM 专属因素：
+
+1. **Permian Basin 产量增长**：Pioneer Natural Resources 收购后，二叠纪盆地产量是否达到 2025 年 200 万桶/天目标，低成本生产（$35-40/桶盈亏平衡）对自由现金流的支撑。
+2. **资本配置优先级**：在当前油价下，股票回购（$20B+/年）vs 资本支出（$28B 指引）vs 债务偿还的平衡，股息增长可持续性（连续增长超 40 年）。
+3. **低碳业务战略**：碳捕集（CCS）、氢能、生物燃料等低碳业务的投资规模，是否形成实质性新增长曲线还是仅为 ESG 合规。
+4. **炼化与化工利润率**：炼油裂解价差变动、化工品（乙烯/聚乙烯）价格周期，对整体利润率的顺周期影响。
+5. **油价敏感性**：ExxonMobil 每桶油价变化对 EPS 的敏感系数（约 $0.50 EPS/每桶 $10 变化），当前原油价格曲线隐含的估值支撑位。
+""",
+        "000660.KS": """
+### 行业特有分析维度（SK 海力士 / SK Hynix）— 更新于 2026Q1
+
+请在 `competitive_intelligence` 字段中，额外关注以下 SK Hynix 专属因素：
+
+1. **HBM（高带宽内存）垄断地位**：SK Hynix 是全球最大 HBM 供应商，为 NVIDIA H100/H200/GB200 提供 HBM3E。HBM4（2025 量产）的客户预购进展，以及三星/Micron 追赶 HBM 市场份额的速度，是估值最核心变量。
+2. **DRAM 价格周期**：服务器 DRAM（DDR5）和移动 DRAM 的价格走势，库存去化进度，以及中国厂商（长鑫存储 CXMT）产能扩张对价格的冲击节奏。
+3. **NAND 闪存市况**：企业级 SSD 需求（AI 服务器存储需求旺盛），消费级 NAND 供过于求现状，铠侠/西数/三星的减产配合度。
+4. **韩元汇率（KRW/USD）风险**：海力士以韩元报价但收入大部分以美元结算，韩元贬值对营收换算的正向影响，以及外汇对冲策略。
+5. **中国业务风险**：海力士在无锡的 DRAM 工厂和大连的 NAND 工厂，美国《芯片法案》出口管制对中国工厂扩产的限制，以及中国本土存储芯片替代的长期威胁。
+""",
     }
     industry_section = _INDUSTRY_CONTEXT.get(ticker.upper(), "")
 
@@ -1294,7 +1385,7 @@ def build_prompt_equity(
 | MACD (W) line value | {_v(w_macd)} | {'MACD line > 0 (fast EMA above slow EMA)' if w_macd and w_macd > 0 else 'MACD line < 0 (fast EMA below slow EMA)'} — cross vs signal line: see §1.4 |
 | RSI-14 (W) | {_v(w_rsi14)} | {'Overbought >70, caution on longs' if w_rsi14 and w_rsi14 > 70 else ('Oversold <30, watch for bounce' if w_rsi14 and w_rsi14 < 30 else 'Neutral 30–70')} |
 | RSI-7 (W) | {_v(w_rsi7)} | {'Extremely overbought >80' if w_rsi7 and w_rsi7 > 80 else ('Extremely oversold <20' if w_rsi7 and w_rsi7 < 20 else 'Normal range')} |
-| ADX (W) | {_v(w_adx)} | {'Strong trend >25' if w_adx and w_adx > 25 else ('Weak/choppy <20' if w_adx and w_adx < 20 else 'Trend forming 20–25')} |
+| ADX (W) | {_v(w_adx)} | {'ADX > 30: trend confirmed (+0.05 bias_score)' if w_adx and w_adx > 30 else ('Strong trend >25' if w_adx and w_adx > 25 else ('⚠️ ADX < 20 → MUST downgrade regime to Consolidation; cap bias_score ≤ 0.45' if w_adx and w_adx < 20 else 'Trend forming 20–25'))} |
 | +DI / -DI | {_v(w_pdi)} / {_v(w_mdi)} | {'+DI > -DI: bulls in control' if w_pdi and w_mdi and w_pdi > w_mdi else '-DI > +DI: bears in control'} |
 | Stochastic %K / %D | {_v(stoch_k)} / {_v(stoch_d)} | {'Overbought death cross — caution' if stoch_k and stoch_d and stoch_k > 80 and stoch_k < stoch_d else ('Oversold golden cross — watch long' if stoch_k and stoch_d and stoch_k < 20 and stoch_k > stoch_d else 'Neutral zone')} |
 | BB %B (W) | {_v(w_bb_pctb)} | {'Above upper band >1' if w_bb_pctb and w_bb_pctb > 1 else ('Below lower band <0' if w_bb_pctb and w_bb_pctb < 0 else 'Inside Bollinger Bands')} |
@@ -1527,10 +1618,48 @@ def call_openai_api(prompt: str, model: str, system_prompt: str = "") -> str:
     return ""
 
 
+def call_gemini_api(prompt: str, model: str, system_prompt: str = "") -> str:
+    """通过 CloseAI 代理调用 Gemini 系列模型（google.genai 原生协议）"""
+    import time
+    print(f"\n正在调用 Gemini API（模型: {model}，via CloseAI 代理）...")
+    try:
+        from google import genai
+        from google.genai import types
+    except ImportError:
+        print("  [错误] google-genai 未安装，请运行: pip install google-genai")
+        return ""
+    client = genai.Client(
+        api_key=ANTHROPIC_API_KEY,
+        http_options={"base_url": GEMINI_BASE_URL},
+    )
+    for attempt in range(3):
+        try:
+            contents = prompt
+            config = types.GenerateContentConfig(max_output_tokens=8000)
+            if system_prompt:
+                config = types.GenerateContentConfig(
+                    max_output_tokens=8000,
+                    system_instruction=system_prompt,
+                )
+            resp = client.models.generate_content(
+                model=model,
+                contents=contents,
+                config=config,
+            )
+            return resp.text or ""
+        except Exception as e:
+            print(f"  第 {attempt + 1} 次调用失败: {e}")
+            if attempt < 2:
+                time.sleep(5)
+    return ""
+
+
 def _call_any_model(prompt: str, model: str, system_prompt: str = "") -> str:
     """统一模型路由"""
     if model in DEEPSEEK_MODELS:
         return call_deepseek_api(prompt, model, system_prompt=system_prompt)
+    elif model in GEMINI_MODELS:
+        return call_gemini_api(prompt, model, system_prompt=system_prompt)
     elif model in OPENAI_MODELS:
         return call_openai_api(prompt, model, system_prompt=system_prompt)
     else:
@@ -1556,7 +1685,7 @@ def _force_no_trade(parsed: dict, raw_resp: str, asset_name: str, reason: str) -
 def call_dual_model_api(
     prompt: str,
     asset_name: str,
-    screener_model: str = "deepseek-reasoner",
+    screener_model: str = "deepseek-v4-pro",
     confirm_model: str = None,
     bias_threshold: float = 0.55,
     system_prompt: str = "",
@@ -1565,7 +1694,7 @@ def call_dual_model_api(
     import json as _json
 
     if confirm_model is None:
-        confirm_model = ANTHROPIC_MODEL
+        confirm_model = "gemini-2.5-pro"
 
     print(f"\n[双模型] Step 1 初筛 ({screener_model})...")
     screener_resp   = _call_any_model(prompt, screener_model, system_prompt=system_prompt)
@@ -1620,7 +1749,7 @@ def call_voting_model_api(
     from collections import Counter
 
     if models is None:
-        models = ["deepseek-reasoner", ANTHROPIC_MODEL, "gpt-4o"]
+        models = ["deepseek-v4-pro", ANTHROPIC_MODEL, "gemini-2.5-pro"]
     if prefer_model is None:
         prefer_model = ANTHROPIC_MODEL
 
@@ -1747,16 +1876,18 @@ def main():
     )
     parser.add_argument("--dual-model",         action="store_true",
                         help="启用双模型交叉验证（初筛+确认，分歧时强制 no_trade）")
-    parser.add_argument("--screener-model",      default="deepseek-reasoner",
-                        help="初筛/第一模型（默认: deepseek-reasoner）")
-    parser.add_argument("--confirm-model",       default=ANTHROPIC_MODEL,
-                        help=f"确认/第二模型（默认: {ANTHROPIC_MODEL}）")
+    parser.add_argument("--screener-model",      default="deepseek-v4-pro",
+                        help="初筛/第一模型（默认: deepseek-v4-pro）")
+    parser.add_argument("--confirm-model",       default="gemini-2.5-pro",
+                        help="确认/第二模型（默认: gemini-2.5-pro）")
     parser.add_argument("--third-model",         default=None,
                         help="第三模型，启用后切换为三模型投票制（例: gpt-4o）")
     parser.add_argument("--prefer-model",        default=ANTHROPIC_MODEL,
                         help=f"投票胜出时优先采用哪个模型的信号（默认: {ANTHROPIC_MODEL}）")
     parser.add_argument("--dual-bias-threshold", default=0.55, type=float,
                         help="触发确认模型/计票时的 bias 阈值（默认: 0.55）")
+    parser.add_argument("--skip-pre-filter",     action="store_true",
+                        help="跳过 Python 硬规则前置过滤（财报黑名单 / 死叉），直接调用 LLM")
     args = parser.parse_args()
     ticker = args.ticker.upper()
 
@@ -1810,6 +1941,9 @@ def main():
     if args.api:
         # ── Python 硬规则前置检查（财报/死叉+价格低于EMA200）──────────────
         pre_reason = _python_pre_filter(ticker, daily, weekly, intel, macro)
+        if args.skip_pre_filter and pre_reason:
+            print(f"\n[前置过滤已跳过] 原本会拦截：{pre_reason}")
+            pre_reason = None
         if pre_reason:
             import json as _json
             print(f"\n[前置过滤] {pre_reason}")

@@ -8,3 +8,4 @@ urllib3
 httpx
 requests
 python-binance
+google-genai

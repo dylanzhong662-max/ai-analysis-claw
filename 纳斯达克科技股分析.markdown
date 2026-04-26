@@ -87,12 +87,13 @@ Only when all 5 levels align in the same direction should bias_score exceed 0.65
 Before deciding action, classify the current regime:
 
 - **Trending-Up**: Price > weekly EMA50 > EMA200, weekly MACD positive, ADX > 25, volume confirming
+- **Trending-Up Consolidation** *(bull market pause)*: Price > EMA50 > EMA200 (Golden Cross intact), weekly MACD **line** > 0 (histogram may be negative but recovering), ADX < 20 (momentum temporarily low, not reversing), OBV rising. This is a **resting phase within an ongoing bull trend** — NOT a reversal signal. Allow long with strict caps: bias_score ≤ 0.52, position_size_pct ≤ 0.20. Requires ALL THREE: Golden Cross + MACD line > 0 + OBV rising. Missing any one → classify as full Consolidation instead.
 - **Trending-Down**: Price < weekly EMA50 < EMA200, MACD negative, ADX > 25
 - **Trending-Recovery**: Price ≥ weekly EMA200, but EMA50 < EMA200 (death cross still in effect). This is the **highest-alpha entry zone** — stock has recovered above EMA200 before EMA50 crosses back up. Enter with bias_score ≤ 0.60; monitor for EMA50 recovery as confirmation.
 - **Post-Earnings Trending**: Strong directional move post-results with gap and volume > 2× average
 - **Mean-Reverting**: Price stretched >5% from weekly EMA-20, RSI at extremes, Stochastic overbought/oversold — **default to no_trade**
 - **Pre-Earnings Choppy**: Earnings < 10 days away, IV expansion expected, no directional edge
-- **Consolidation**: ADX < 20, price oscillating near weekly EMA-20, MACD flat — default to no_trade
+- **Consolidation**: ADX < 20 AND NOT meeting Trending-Up Consolidation criteria (e.g., price < EMA50, or EMA50 ≤ EMA200, or MACD line ≤ 0, or OBV flat/falling) — price oscillating without clear directional structure, **default to no_trade**
 
 ## 2.3 Death Cross Rules (Split by Price Position)
 
@@ -137,9 +138,10 @@ The death cross (weekly EMA50 < EMA200) does NOT automatically prohibit all long
 > **Monthly data is background context only.** It adjusts bias_score by ±0.05 maximum and cannot veto a valid weekly signal.
 
 - Monthly MACD < 0 → bias_score max -0.05 (not a block)
+- **Monthly MACD histogram expanding negative + Weekly MACD histogram recovering** (timeframe divergence): Flag explicitly in `regime_justification` as "MACD timeframe divergence — monthly bearish momentum strengthening while weekly attempts recovery." Apply the standard -0.05 above (do not double-count). In Trending-Up Consolidation regime, this divergence further caps bias_score at 0.50.
 - Monthly RSI > 75 → bias_score max -0.05 (caution on chasing)
 - Monthly RSI < 35 AND weekly RSI turning up → +0.05 (recovery confirmation)
-- **Weekly Trending / Trending-Recovery signals take priority over monthly bearish background.**
+- **Weekly Trending / Trending-Up Consolidation / Trending-Recovery signals take priority over monthly bearish background.**
 
 
 ---
@@ -179,12 +181,14 @@ For the analyzed stock, choose exactly ONE state:
 
 1. **long**: Enter or hold a bullish position
    - Use when: Trending-Up or Trending-Recovery regime, QQQ above weekly EMA50 OR price ≥ EMA200, MACD positive or recovering, earnings not imminent, macro tailwind
+   - **Trending-Up Consolidation**: also allowed with reduced sizing — bias_score ≤ 0.52, position_size_pct ≤ 0.20
 
 2. **short**: Enter or hold a bearish position
    - Use when: Trending-Down regime, death cross + price < EMA200, QQQ below weekly EMA50, MACD negative, VIX > 20
 
 3. **no_trade**: No position recommended this period
-   - Use when: Earnings ≤ 5 days away; conflicting multi-level signals; QQQ in choppy regime; Mean-Reverting regime; ADX < 20
+   - Use when: Earnings ≤ 5 days away; conflicting multi-level signals; QQQ in choppy regime; Mean-Reverting regime; **True Consolidation** (ADX < 20 AND Golden Cross absent, OR MACD line ≤ 0, OR OBV flat/falling)
+   - **Do NOT force no_trade solely because ADX < 20** when Golden Cross + MACD line > 0 + OBV rising are all present — that is Trending-Up Consolidation
 
 **Default to `no_trade` when in doubt. Patience in tech stocks — especially around earnings — is the primary edge.**
 
@@ -243,7 +247,7 @@ Return your analysis as a **valid JSON object** with these exact fields:
   "asset_analysis": [
     {
       "asset": "<TICKER>",
-      "regime": "Trending-Up" | "Trending-Down" | "Trending-Recovery" | "Post-Earnings Trending" | "Mean-Reverting" | "Pre-Earnings Choppy" | "Consolidation",
+      "regime": "Trending-Up" | "Trending-Up Consolidation" | "Trending-Down" | "Trending-Recovery" | "Post-Earnings Trending" | "Mean-Reverting" | "Pre-Earnings Choppy" | "Consolidation",
       "action": "long" | "short" | "no_trade",
       "bias_score": <float 0.0–1.0>,
       "entry_zone": "<price range string>",
@@ -292,6 +296,7 @@ Return your analysis as a **valid JSON object** with these exact fields:
 - When `action = no_trade`: set `profit_target`, `stop_loss`, `risk_reward_ratio` to null
 - `bias_score` for `no_trade` should typically be < 0.50
 - For `Trending-Recovery` regime: `bias_score` must be ≤ 0.60
+- For `Trending-Up Consolidation` regime: `bias_score` must be ≤ 0.52; `position_size_pct` must be ≤ 0.20; MACD timeframe divergence (monthly expanding negative) further caps to ≤ 0.50
 
 
 ---
@@ -313,7 +318,8 @@ Return your analysis as a **valid JSON object** with these exact fields:
 - **Stock underperforming QQQ (20-week rolling, >-3%)**: -0.05 to long bias_score
 - **10Y yield rising >0.10% in 5 days**: -0.05 to long bias_score
 - **XLK lagging QQQ**: -0.05 to long bias_score
-- **ADX < 20**: Downgrade to Consolidation; cap bias_score at 0.45
+- **ADX < 20 + price > EMA50 > EMA200 (Golden Cross) + MACD line > 0 + OBV rising**: Classify as Trending-Up Consolidation (NOT full Consolidation); cap bias_score at 0.52; position_size_pct ≤ 0.20
+- **ADX < 20 (all other cases)**: Downgrade to Consolidation; cap bias_score at 0.45; force no_trade
 - **ADX > 30**: Trend confirmed; +0.05 to bias_score
 - **EPS estimates revised upward ≥ 2% in 30 days**: +0.05 to long bias_score
 - **OBV divergence (price up, OBV down)**: -0.10 to long bias_score
@@ -345,6 +351,7 @@ Return your analysis as a **valid JSON object** with these exact fields:
 - **Overweighting Monthly Bearish Background**: Monthly data is ±0.05 adjustment only. A valid weekly Trending-Recovery signal overrides monthly negativity.
 - **Ignoring ATR**: Never set stops tighter than 2.0×weekly ATR — medium-term positions need room to breathe
 - **Single-Dimension Decisions**: A strong technical setup with a bad intelligence signal (estimate cuts, regulatory action) is not a trade
+- **Misclassifying Bull Market Pauses**: Low ADX (< 20) within a Golden Cross (price > EMA50 > EMA200) with MACD line > 0 and OBV rising is a **bull market pause (Trending-Up Consolidation)**, not a trend reversal. Forcing no_trade in this scenario is the single largest source of missed alpha in bull markets. Allow a small entry (bias_score ≤ 0.52, size ≤ 20%) rather than defaulting to no_trade.
 
 
 ---

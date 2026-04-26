@@ -1,5 +1,17 @@
 # 大模型金融分析 — 项目说明文档
 
+## 执行环境约定
+
+**所有脚本默认在阿里云 ECS（`101.201.171.174`）上运行**，不在本地 Mac 执行。本地网络存在 TLS 拦截，Python API 调用会报 `SSL: CERTIFICATE_VERIFY_FAILED`。
+
+需要执行脚本时，直接给出服务器命令：
+
+```bash
+ssh root@101.201.171.174 "cd /opt/finance-analysis && source .env && .venv/bin/python3 <script> <args>"
+```
+
+---
+
 ## 项目概述
 
 本项目是一个**以大语言模型（LLM）为核心决策引擎的多资产交易信号系统**，覆盖三类资产共 12 个标的：
@@ -379,11 +391,16 @@ tail -f logs/cron.log
 ### crontab 定时任务
 
 ```
-# 每天 08:00 CST（UTC+8 = UTC 0:00）
-0 0 * * * bash /opt/finance-analysis/run_daily.sh >> /opt/finance-analysis/logs/cron.log 2>&1
+# 阿里云 ECS 默认时区 CST（UTC+8），crontab 按本地时间执行，无需换算 UTC
 
-# 每周一 08:30 CST
-30 0 * * 1 bash /opt/finance-analysis/run_weekly.sh >> /opt/finance-analysis/logs/cron.log 2>&1
+# 每天 10:00 CST：早盘日报
+0 10 * * * bash /opt/finance-analysis/run_daily.sh >> /opt/finance-analysis/logs/cron.log 2>&1
+
+# 每天 19:00 CST：晚盘日报
+0 19 * * * bash /opt/finance-analysis/run_daily.sh >> /opt/finance-analysis/logs/cron.log 2>&1
+
+# 每周一 08:30 CST：周报
+30 8 * * 1 bash /opt/finance-analysis/run_weekly.sh >> /opt/finance-analysis/logs/cron.log 2>&1
 ```
 
 ### Mac 本地定时任务（LaunchAgents）
@@ -862,4 +879,162 @@ pip install -r requirements.txt
   ```
   `api.openai-proxy.org`（Claude + GPT 聚合平台）直连 ECS 可达，**不能**走 SS 代理，否则 TLS 握手报 `SSL: UNEXPECTED_EOF_WHILE_READING` 错误。
 - **`portfolio.json` 维护**：每次开仓/平仓后需手动更新，或在交易接口对接完成后自动同步。
-- **新增资产**：在 `assets_config.py` 注册 + 在 `tech_stock_analysis.py` 的 `_INDUSTRY_CONTEXT` 添加专属上下文（可选）。
+- **新增资产**：见下方「新增资产完整操作链路」章节，只需改 `assets_config.py` 一处，其余脚本自动感知。
+
+---
+
+## 新增 / 删除资产完整操作链路
+
+> **设计原则**：`assets_config.py` 是唯一配置来源（Single Source of Truth）。  
+> `news_signal_bridge.py`、`run_daily.sh`、RAG 采集器三个模块在启动时动态读取，  
+> **新增或删除资产只需改一个文件**。
+
+---
+
+### 新增资产：3 步操作
+
+#### Step 1 — `assets_config.py`（必改，唯一入口）
+
+在 `ASSET_UNIVERSE` 里追加一条记录，填写所有字段：
+
+```python
+"TSLA": {
+    # ── 基础信息 ──
+    "ticker":       "TSLA",              # yfinance ticker
+    "type":         "equity",            # equity / etf / commodity / crypto
+    "script":       "tech_stock_analysis.py",
+    "script_args":  ["--ticker", "TSLA"],
+    "output_file":  "outputs/tsla_api_output.txt",
+    "prompt_file":  "outputs/tsla_prompt_output.txt",
+    "backtest_dir": None,
+    "sector":       "Technology/EV",
+    "ccy":          "USD",
+    "description":  "Tesla",
+    # ── 每日定时任务 ──
+    "daily_scan":       True,            # True = 纳入 run_daily.sh 每日分析
+    "daily_extra_args": [],              # 传给脚本的额外参数，如 ["--trade"]
+    # ── 新闻 RAG（腾讯云 news-rag-system）──
+    "rag_weight":        0.10,           # 0.0 = 禁用 RAG 监控
+    "news_keywords":     ["TSLA", "Tesla", "Elon Musk", "Cybertruck",
+                          "Full Self-Driving", "FSD", "EV", "Giga"],
+    "news_primary_terms":["TSLA", "Tesla"],   # 整词匹配，防止 "Tesla" ≠ "Teslara"
+    # ── SEC / 财报采集（equity 类型填写；ETF/commodity/crypto 留 None/False）──
+    "sec_cik":           "0001318605",   # SEC EDGAR CIK（equity 必填）
+    "earnings_tracking": True,           # True = Polygon 季报财务采集
+    "insider_tracking":  True,           # True = Form 4 内部人交易监控
+},
+```
+
+如需纳入某个扫描分组，同时更新 `SCAN_GROUPS`：
+
+```python
+SCAN_GROUPS = {
+    "tech": ["GOOGL", "MSFT", "NVDA", "AAPL", "META", "AMZN", "TSLA"],  # 加在此处
+    ...
+}
+```
+
+**`type` 字段对应关系：**
+
+| type | 适用 | sec_cik | earnings_tracking | insider_tracking |
+|------|------|---------|-------------------|-----------------|
+| `equity` | 个股（TSLA、NVDA…） | 必填 | 视需要 | 视需要 |
+| `etf` | ETF（SLV、COPX…） | None | False | False |
+| `commodity` | 期货（GC=F…） | None | False | False |
+| `crypto` | 加密货币（BTC-USD…） | None | False | False |
+
+---
+
+#### Step 2 — `tech_stock_analysis.py` → `_INDUSTRY_CONTEXT`（可选，提升分析质量）
+
+不加也能运行（使用通用 prompt），但加了 LLM 分析质量更高：
+
+```python
+"TSLA": """
+Tesla-specific analysis dimensions:
+- Quarterly delivery numbers vs. Wall Street estimates (key market mover)
+- Full Self-Driving (FSD) regulatory progress and subscription attach rate
+- Energy storage (Megapack) revenue as gross margin diversifier
+- Elon Musk political/brand risk and distraction factor
+- China market share vs. BYD / NIO competition
+- Gross margin trajectory (vehicle + software mix shift)
+""",
+```
+
+---
+
+#### Step 3 — RAG 系统同步（腾讯云，`43.139.5.125`）
+
+```bash
+# 本地 Mac 执行：同步 portfolio.json（由 assets_config 自动生成，无需手动编辑）
+python3 - <<'EOF'
+import json, sys
+sys.path.insert(0, "/Users/zhongsongzhi/Desktop/大模型金融分析")
+from assets_config import get_rag_portfolio
+print(json.dumps(get_rag_portfolio(), ensure_ascii=False, indent=2))
+EOF
+
+# 或直接 rsync 整个 config 目录
+rsync -avz /Users/zhongsongzhi/Documents/news-rag-system/config/ \
+    ubuntu@43.139.5.125:/home/ubuntu/news-rag-system/config/
+
+# 服务器上重启 preprocessor 使配置生效（5 分钟内开始收录新资产新闻）
+ssh ubuntu@43.139.5.125 "sudo systemctl restart preprocessor"
+```
+
+> **注**：`polygon.py` / `sec_edgar.py` / `form4.py` 三个采集器在启动时自动从 `assets_config.py`
+> 读取 `EARNINGS_TICKERS` / `COMPANY_8K` / `TICKERS`，无需手动修改。
+> 如果 `ASSETS_CONFIG_DIR` 环境变量未设置，采集器会使用硬编码的兜底列表并打印警告。
+
+---
+
+### 删除资产：2 步操作
+
+1. **`assets_config.py`**：从 `ASSET_UNIVERSE` 删除对应条目，同时从 `SCAN_GROUPS` 的各分组中移除。
+2. **RAG 系统同步**：重新 rsync + restart preprocessor（旧数据保留在数据库中，只是不再采集新数据）。
+
+不需要改其他任何文件。
+
+---
+
+### 修改每日分析范围（不增删资产）
+
+只需修改 `assets_config.py` 中的 `daily_scan` 字段：
+
+```python
+# 暂停某资产的每日分析（如 AMZN 财报期静默）
+"daily_scan": False,
+
+# 恢复
+"daily_scan": True,
+```
+
+`run_daily.sh` 下次运行时自动感知，无需重启任何服务。
+
+---
+
+### 各模块读取 `assets_config` 的方式
+
+| 模块 | 调用函数 | 读取内容 |
+|------|---------|---------|
+| `run_daily.sh` | `get_daily_assets()` | `daily_scan=True` 的资产列表 + `daily_extra_args` |
+| `news_signal_bridge.py` | `get_news_keywords(ticker)` | RAG 检索扩展词 |
+| `news_signal_bridge.py` | `get_news_primary_terms(ticker)` | 主标识符（整词匹配） |
+| `polygon.py` | `get_earnings_tracked_tickers()` | Polygon 季报采集列表 |
+| `sec_edgar.py` | `get_sec_tracked_assets()` | SEC 8-K 监控 `{ticker: CIK}` |
+| `form4.py` | `get_sec_tracked_assets()` | Form 4 监控 `{ticker: CIK}` |
+| `market_scan.py` | `ASSET_UNIVERSE` / `SCAN_GROUPS` | 全量资产路由 + 分组 |
+| `portfolio_tracker.py` | `ASSET_UNIVERSE` | 持仓评估 + Beta Overlay |
+
+---
+
+### 新增数据源（非资产，例如新闻 RSS / 新 API）
+
+在 RAG 系统（腾讯云）中操作：
+
+1. 在 `preprocessor/collectors/` 新建采集器文件，实现 `@collector("name")` 装饰的异步函数
+2. 在 `preprocessor/scheduler.py` 注册定时任务（interval 或 cron）
+3. 在 `preprocessor/main.py` 的 `STALE_DAYS` 和 `DATA_TYPE_MAP` 里添加对应配置
+4. Rsync + `systemctl restart preprocessor`
+
+不影响金融分析系统（阿里云）任何代码。

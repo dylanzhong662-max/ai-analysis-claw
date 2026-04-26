@@ -18,6 +18,12 @@ from openai import OpenAI
 from curl_cffi import requests as curl_requests
 from datetime import datetime, timedelta
 
+try:
+    from news_signal_bridge import fetch_news_signals, format_news_signals_section
+    _NEWS_BRIDGE_AVAILABLE = True
+except ImportError:
+    _NEWS_BRIDGE_AVAILABLE = False
+
 # ─────────────────────────────────────────────
 # Anthropic API 配置（方案二：直接调用 Claude API）
 # 优先读取环境变量，未设置则使用下方默认值
@@ -51,10 +57,11 @@ TRADE_LOG_COLUMNS = [
 
 # 支持的模型列表（用于 --model 参数提示）
 CLAUDE_MODELS   = {"claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"}
-DEEPSEEK_MODELS = {"deepseek-reasoner", "deepseek-chat"}
-# GPT / OpenAI 系列：通过聚合平台 openai-proxy.org，复用同一 API Key
+DEEPSEEK_MODELS = {"deepseek-reasoner", "deepseek-chat", "deepseek-v4-pro", "deepseek-v4-flash"}
+GEMINI_MODELS   = {"gemini-2.5-pro", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-1.5-pro"}
+GEMINI_BASE_URL = os.getenv("GEMINI_BASE_URL", "https://api.openai-proxy.org/google")
+# GPT 系列：通过聚合平台 openai-proxy.org
 OPENAI_MODELS   = {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "o1", "o3-mini"}
-# 聚合平台的 OpenAI 兼容接口（与 ANTHROPIC_BASE_URL 同一平台，同一 key）
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai-proxy.org/v1")
 OPENAI_API_KEY  = os.getenv("OPENAI_API_KEY", ANTHROPIC_API_KEY)  # 默认复用聚合平台 key
 
@@ -196,6 +203,106 @@ def fmt_series(series: pd.Series, decimals: int = 2, n: int = 10) -> str:
     return ", ".join(str(v) for v in values)
 
 
+def describe_macd(ind: dict, tf_label: str = "Weekly") -> str:
+    """将 MACD 指标转为文本形态描述，替代原始数字序列"""
+    macd = ind['macd'].dropna()
+    sig  = ind['macd_sig'].dropna()
+    hist = ind['macd_hist'].dropna()
+    if len(macd) < 2 or len(sig) < 2:
+        return f"{tf_label} MACD: N/A"
+    m, s     = float(macd.iloc[-1]), float(sig.iloc[-1])
+    m_p, s_p = float(macd.iloc[-2]), float(sig.iloc[-2])
+    if   m > s and m_p <= s_p: cross = "Newly Golden Cross"
+    elif m < s and m_p >= s_p: cross = "Newly Death Cross"
+    elif m > s:                cross = "Golden Cross ongoing"
+    else:                      cross = "Death Cross ongoing"
+    h_vals = hist.iloc[-3:].tolist() if len(hist) >= 3 else []
+    if len(h_vals) == 3:
+        if h_vals[2] > h_vals[1] > h_vals[0]:
+            if h_vals[2] > 0:
+                hist_t = f"histogram expanding upward ({h_vals[2]:.2f}, bullish momentum strengthening)"
+            else:
+                hist_t = f"histogram recovering from negative ({h_vals[2]:.2f}, bearish momentum easing)"
+        elif h_vals[2] < h_vals[1] < h_vals[0]:
+            if h_vals[2] < 0:
+                hist_t = f"histogram expanding downward ({h_vals[2]:.2f}, bearish momentum strengthening)"
+            else:
+                hist_t = f"histogram contracting from positive ({h_vals[2]:.2f}, bullish momentum weakening)"
+        elif h_vals[2] > 0:
+            hist_t = f"histogram positive ({h_vals[2]:.2f})"
+        else:
+            hist_t = f"histogram negative ({h_vals[2]:.2f})"
+    else:
+        hist_t = ""
+    return f"{tf_label} MACD {cross} (MACD={m:.2f}, Signal={s:.2f}); {hist_t}"
+
+
+def describe_rsi(ind: dict, tf_label: str = "Weekly") -> str:
+    """将 RSI 指标转为文本形态描述"""
+    rsi14 = ind['rsi14'].dropna()
+    rsi7  = ind['rsi7'].dropna()
+    if rsi14.empty:
+        return f"{tf_label} RSI: N/A"
+    r = float(rsi14.iloc[-1])
+    # 阈值与 system prompt 对齐：>75 = overbought cap，<30 = oversold cap
+    if   r > 75: level = f"overbought ({r:.0f}, above 75 cap — long bias_score capped at 0.55)"
+    elif r < 30: level = f"oversold ({r:.0f})"
+    elif r > 55: level = f"firm ({r:.0f})"
+    elif r < 45: level = f"weak ({r:.0f})"
+    else:        level = f"neutral ({r:.0f})"
+    trend = ""
+    if len(rsi14) >= 4:
+        r_p = float(rsi14.iloc[-4])
+        if   r > 50 and r_p < 50: trend = ", crossed 50 midline ↑"
+        elif r < 50 and r_p > 50: trend = ", broke below 50 midline ↓"
+        elif r > r_p + 8:         trend = ", rapid recovery"
+        elif r < r_p - 8:         trend = ", rapid decline"
+    r7_note = ""
+    if not rsi7.empty:
+        r7 = float(rsi7.iloc[-1])
+        if   r7 > 75: r7_note = f"; RSI-7={r7:.0f} above 75 cap (chasing-high risk — position_size_pct capped at 0.30)"
+        elif r7 < 20: r7_note = f"; RSI-7={r7:.0f} extremely oversold (bounce momentum building)"
+    return f"{tf_label} RSI-14={level}{trend}{r7_note}"
+
+
+def describe_bb(ind: dict, tf_label: str = "Weekly") -> str:
+    """将布林带指标转为文本形态描述"""
+    pctb_s = ind['bb_pct_b'].dropna()
+    bw_s   = ind['bb_bw'].dropna()
+    if pctb_s.empty:
+        return f"{tf_label} BB: N/A"
+    pctb = float(pctb_s.iloc[-1])
+    if   pctb > 1.0: pos = "above upper band (strong, watch for pullback)"
+    elif pctb > 0.7: pos = "near upper band (bullish bias)"
+    elif pctb > 0.4: pos = "above midline (neutral bullish)"
+    elif pctb > 0.1: pos = "below midline (neutral bearish)"
+    elif pctb >= 0:  pos = "near lower band (weak)"
+    else:            pos = "below lower band (oversold — watch for bounce)"
+    bw_note = ""
+    if len(bw_s) >= 26:
+        history = bw_s.tail(52).tolist() if len(bw_s) >= 52 else bw_s.tolist()
+        curr_bw = float(bw_s.iloc[-1])
+        pct = sum(1 for x in history if x <= curr_bw) / len(history) * 100
+        if   pct < 20: bw_note = f"; bandwidth at {pct:.0f}th percentile (highly compressed — breakout setup)"
+        elif pct > 80: bw_note = f"; bandwidth at {pct:.0f}th percentile (highly expanded — strong trend)"
+    return f"{tf_label} BB %B={pctb:.2f}, {pos}{bw_note}"
+
+
+def describe_price_vs_ema(close: pd.Series, ind: dict, tf_label: str = "Weekly") -> str:
+    """价格相对各均线位置的文本描述"""
+    if close.empty:
+        return f"{tf_label} price structure: N/A"
+    price = float(close.iloc[-1])
+    parts = []
+    for period, key in [(20, 'ema20'), (50, 'ema50'), (200, 'ema200')]:
+        ema_s = ind[key].dropna()
+        if not ema_s.empty:
+            v   = float(ema_s.iloc[-1])
+            pct = (price - v) / v * 100
+            parts.append(f"EMA{period}({'↑' if price > v else '↓'}{abs(pct):.1f}%)")
+    return (f"{tf_label} price={price:.2f}; " + ", ".join(parts)) if parts else f"{tf_label} N/A"
+
+
 # ─────────────────────────────────────────────
 # 数据获取与指标计算
 # ─────────────────────────────────────────────
@@ -220,9 +327,9 @@ def fetch_gold_data():
         ticker, period="3mo", interval="1d",
         auto_adjust=True, progress=False, session=session
     )
-    # 周线：2年（主分析时间框架）
+    # 周线：5年（主分析时间框架；EMA200 需要至少 200 根周线收敛，5y ≈ 260 根）
     weekly = yf.download(
-        ticker, period="2y", interval="1wk",
+        ticker, period="5y", interval="1wk",
         auto_adjust=True, progress=False, session=session
     )
     # 月线：5年（长期趋势背景）
@@ -443,7 +550,13 @@ def load_perf_metrics(perf_csv: str = "backtest_results/performance.csv") -> dic
                     break
 
     win_rate_str = str(row.get("win_rate", "N/A"))
-    win_rate_float = float(win_rate_str.replace("%", "")) / 100 if "%" in win_rate_str else None
+    if "%" in win_rate_str:
+        try:
+            win_rate_float = float(win_rate_str[:win_rate_str.index("%")].strip()) / 100
+        except ValueError:
+            win_rate_float = None
+    else:
+        win_rate_float = None
 
     return {
         "win_rate": win_rate_str,
@@ -506,25 +619,17 @@ def build_prompt(daily: pd.DataFrame, weekly: pd.DataFrame, monthly: pd.DataFram
     vol_current_d = int(daily['Volume'].squeeze().iloc[-1])
     vol_avg_d     = int(daily['Volume'].squeeze().tail(20).mean())
 
-    # 周线序列（最近26周 ≈ 半年）
-    n_w = 26
-    series_weekly_close = fmt_series(close_w, 2, n_w)
-    series_weekly_ema20 = fmt_series(w_ind['ema20'], 2, n_w)
-    series_weekly_ema50 = fmt_series(w_ind['ema50'], 2, n_w)
-    series_weekly_macd  = fmt_series(w_ind['macd'],  2, n_w)
-    series_weekly_rsi7  = fmt_series(w_ind['rsi7'],  2, n_w)
-    series_weekly_rsi14 = fmt_series(w_ind['rsi14'], 2, n_w)
+    # ── 形态描述（替代原始数字序列，LLM 对文本形态感知力远强于浮点数组）──
+    w_price_desc = describe_price_vs_ema(close_w, w_ind, "Weekly")
+    w_macd_desc  = describe_macd(w_ind, "Weekly")
+    w_rsi_desc   = describe_rsi(w_ind, "Weekly")
+    w_bb_desc    = describe_bb(w_ind, "Weekly")
+    m_macd_desc  = describe_macd(m_ind, "Monthly")
+    m_rsi_desc   = describe_rsi(m_ind, "Monthly")
 
-    # 月线序列（最近24个月 = 2年）
-    n_m = 24
-    series_monthly_close = fmt_series(close_m, 2, n_m)
-    series_monthly_ema20 = fmt_series(m_ind['ema20'], 2, n_m)
-    series_monthly_macd  = fmt_series(m_ind['macd'],  2, n_m)
-    series_monthly_rsi14 = fmt_series(m_ind['rsi14'], 2, n_m)
-
-    # 52周价格结构（基于周线）
-    high_52w = round(float(close_w.tail(52).max()), 1)
-    low_52w  = round(float(close_w.tail(52).min()), 1)
+    # 52周价格结构（基于周线 High/Low，收盘价高低点会低估真实波动幅度）
+    high_52w = round(float(weekly['High'].squeeze().dropna().tail(52).max()), 1)
+    low_52w  = round(float(weekly['Low'].squeeze().dropna().tail(52).min()), 1)
     pct_from_high = round((current_price - high_52w) / high_52w * 100, 1)
     pct_from_low  = round((current_price - low_52w)  / low_52w  * 100, 1)
 
@@ -543,14 +648,6 @@ def build_prompt(daily: pd.DataFrame, weekly: pd.DataFrame, monthly: pd.DataFram
 
     obv_series_w = w_ind['obv'].dropna().tail(5).tolist()
     obv_trend_w  = "上升" if obv_series_w[-1] > obv_series_w[0] else "下降"
-
-    # 近15周序列（高级指标）
-    n_seq = 15
-    series_stoch_k = fmt_series(w_ind['stoch_k'], 1, n_seq)
-    series_stoch_d = fmt_series(w_ind['stoch_d'], 1, n_seq)
-    series_adx     = fmt_series(w_ind['adx'],     1, n_seq)
-    series_roc10   = fmt_series(w_ind['roc10'],   2, n_seq)
-    series_bb_pctb = fmt_series(w_ind['bb_pct_b'], 3, n_seq)
 
     # ── 宏观跨资产摘要 ──
     ms = summarize_macro(macro or {}, close_d.dropna()) if macro is not None else summarize_macro({}, close_d.dropna())
@@ -607,12 +704,12 @@ def build_prompt(daily: pd.DataFrame, weekly: pd.DataFrame, monthly: pd.DataFram
     rsi14_w_val = round(float(w_ind['rsi14'].dropna().iloc[-1]), 2)
     rsi7_w_val  = round(float(w_ind['rsi7'].dropna().iloc[-1]), 2)
 
-    long_entry_lo  = round(current_price - 0.3 * atr14_weekly, 1)
-    long_entry_hi  = round(current_price + 0.3 * atr14_weekly, 1)
-    long_stop      = round(current_price - 2.0 * atr14_weekly, 1)   # 1.5→2.0×ATR 中长线需要更宽止损
-    long_target    = round(current_price + 4.0 * atr14_weekly, 1)   # 3.0→4.0×ATR 保持 RR=2.0
-    short_entry_lo = round(current_price - 0.3 * atr14_weekly, 1)
-    short_entry_hi = round(current_price + 0.3 * atr14_weekly, 1)
+    long_entry_lo  = round(current_price - 0.5 * atr14_weekly, 1)
+    long_entry_hi  = round(current_price + 0.5 * atr14_weekly, 1)
+    long_stop      = round(current_price - 2.0 * atr14_weekly, 1)
+    long_target    = round(current_price + 4.0 * atr14_weekly, 1)   # RR=2.0
+    short_entry_lo = round(current_price - 0.5 * atr14_weekly, 1)
+    short_entry_hi = round(current_price + 0.5 * atr14_weekly, 1)
     short_stop     = round(current_price + 2.0 * atr14_weekly, 1)
     short_target   = round(current_price - 4.0 * atr14_weekly, 1)
 
@@ -688,27 +785,23 @@ def build_prompt(daily: pd.DataFrame, weekly: pd.DataFrame, monthly: pd.DataFram
 
 ---
 
-## 周线序列数据（最近 {n_w} 周 ≈ 半年，**从旧到新排列**）
+## 周线动量特征描述
 
-⚠️ 最后一个数值 = 最新数据
+{w_price_desc}
 
-周收盘价: [{series_weekly_close}]
-EMA-20:   [{series_weekly_ema20}]
-EMA-50:   [{series_weekly_ema50}]
-MACD:     [{series_weekly_macd}]
-RSI-7:    [{series_weekly_rsi7}]
-RSI-14:   [{series_weekly_rsi14}]
+{w_macd_desc}
+
+{w_rsi_desc}
+
+{w_bb_desc}
 
 ---
 
-## 月线序列数据（最近 {n_m} 个月 ≈ 2年，**从旧到新排列**）
+## 月线背景（权重 ≤ ±0.05，仅作背景参考）
 
-⚠️ 最后一个数值 = 最新数据
+{m_macd_desc}
 
-月收盘价: [{series_monthly_close}]
-EMA-20:   [{series_monthly_ema20}]
-MACD:     [{series_monthly_macd}]
-RSI-14:   [{series_monthly_rsi14}]
+{m_rsi_desc}
 
 ---
 
@@ -741,12 +834,6 @@ RSI-14:   [{series_monthly_rsi14}]
 | ROC(20周) | {roc20_w:+.2f}% | {'正动量' if roc20_w > 0 else '负动量'} |
 | OBV趋势(近5周) | {obv_trend_w} | {'量价配合上涨' if obv_trend_w == '上升' else '量价配合下跌'} |
 
-**近15周序列（从旧到新）**：
-Stochastic %K: [{series_stoch_k}]
-Stochastic %D: [{series_stoch_d}]
-ADX:           [{series_adx}]
-ROC(10):       [{series_roc10}]
-BB %B:         [{series_bb_pctb}]
 {macro_section}
 ---
 
@@ -779,76 +866,42 @@ BB %B:         [{series_bb_pctb}]
 
 ## 分析任务
 
-请基于以上数据，按照中长期大宗商品分析框架，完成以下任务：
+请严格遵循 system prompt 中的分析框架，对以上市场数据进行三维综合分析：
 
-1. **判断当前市场制度**（Trending / Mean-Reverting / Choppy），以**周线**为准
-2. **判断整体市场情绪**（Risk-On / Risk-Off / Neutral）
-3. **分析 DXY 对黄金中长期走势的影响**
-4. **针对黄金给出中长期交易建议**（持仓周期 2周~3个月），严格按以下 JSON 格式输出：
+1. **Dimension 1 — 行情分析**：基于上方周线动量特征描述，判断当前技术结构与动量状态
+2. **Dimension 2 — 结构化分析**：按五层市场层级（Fed政策→DXY→VIX/避险→技术结构→入场时机）判断制度
+3. **Dimension 3 — 情报分析**：结合宏观数据（DXY、10Y收益率、VIX、金银比）评估宏观驱动
 
-```json
-{{
-  "period": "Weekly",
-  "overall_market_sentiment": "Risk-On | Risk-Off | Neutral",
-  "dxy_assessment": "<DXY 趋势及对黄金中长期走势的影响>",
-  "asset_analysis": [
-    {{
-      "asset": "GOLD",
-      "regime": "Trending | Mean-Reverting | Choppy",
-      "action": "long | short | no_trade",
-      "bias_score": <0.0 到 1.0>,
-      "entry_zone": "<价格区间，必须基于上方预计算锚点>",
-      "profit_target": <数字 或 null>,
-      "stop_loss": <数字 或 null>,
-      "risk_reward_ratio": <数字 或 null>,
-      "estimated_holding_weeks": <预计持仓周数，整数 2~12，或 null if no_trade>,
-      "position_size_pct": <建议仓位占比 0.0–1.0，no_trade 时填 0.0>,
-      "invalidation_condition": "<使该观点失效的具体信号（周线收盘为准）>",
-      "macro_catalyst": "<驱动中长期行情的宏观逻辑>",
-      "technical_setup": "<关键周线/月线指标信号综合描述>",
-      "justification": "<不超过300字的综合判断>"
-    }}
-  ]
-}}
-```
+**当前关键数值参考（供信号质量过滤使用）**：
+- 周线 MACD: {macd_w_val} | 周线 RSI-14: {rsi14_w_val}
+- 周线 ADX: {adx_w} | Stochastic %K: {stoch_k_w}
+- 周线 EMA-20: {current_ema20_w}
 
-**硬性约束（违反任意一条必须改为 no_trade）**：
-- entry_zone 必须包含当前价格 ±1×周线ATR-14 范围，不得设置脱离市场的理想价格
-- profit_target 做多时必须高于 entry_zone 上限，做空时必须低于 entry_zone 下限
-- risk_reward_ratio 必须 ≥ 2.0
-- stop_loss 距离 entry 不得小于 1.5×周线ATR-14（中长期持仓需容纳至少1周的正常波幅）
-- 当 action = no_trade 时，profit_target / stop_loss / risk_reward_ratio / estimated_holding_weeks 填 null，position_size_pct 填 0.0
-
-**信号质量过滤规则（全部适用）**：
-- 周线 MACD ({macd_w_val}) < 0 时，**禁止**在 Trending 制度下做多；可评估做空
-- 周线 RSI-14 ({rsi14_w_val}) > 75 时，做多 bias_score 自动上限 0.55；RSI-14 < 30 时，做空 bias_score 自动上限 0.55
-- 价格偏离周线 EMA-20 ({current_ema20_w}) 超过 10% 时，bias_score 上限 0.55（无论方向）
-- **Mean-Reverting 制度下，bias_score 上限 0.45**（该制度胜率低，仅允许极低置信度的反转机会，仓位最高 0.2）
-- Choppy 制度下，bias_score 上限 0.45
-- 当 bias_score < 0.50 时，一律输出 no_trade
-- 多空均衡：价格低于周线 EMA-20 且 MACD 为负时，**必须认真评估做空机会**，不得默认 no_trade
-
-**宏观与多时间框架因子使用规则**：
-- DXY 趋势向上（价格>EMA20）时，做多黄金需额外降低 bias_score 0.05–0.10
-- 10Y 收益率持续上升趋势时，做多黄金需额外降低 bias_score 0.05
-- VIX > 25 时，Risk-Off 环境，黄金避险需求升级，可适当上调 bias_score 0.05
-- ADX ({adx_w}) < 20：市场处于振荡，Trending 信号可靠性下降，降级为 Choppy
-- ADX > 30：趋势强劲，可适当上调 bias_score 0.05
-- 月线 MACD 与周线 MACD 同向（均为正或均为负）：多时间框架共振，bias_score 上调 0.05
-- 月线 MACD 与周线 MACD 背离（方向相反）：信号可靠性下降，bias_score 降低 0.05
-- Stochastic %K ({stoch_k_w}) > 80 且 %K < %D：超买死叉，做多信号降级
-- Stochastic %K < 20 且 %K > %D：超卖金叉，做空信号降级
-- OBV 趋势与价格趋势背离时，降低 bias_score 0.10（量价不配合）
-- 金银比快速上升（避险驱动）且 VIX 上升：黄金 safe-haven 信号加强
+请严格按照 system prompt 中规定的 JSON 格式输出完整分析结果，包含 `price_action_analysis`、`macro_analysis`、`intelligence_analysis` 三个子对象。入场锚点须基于上方预计算入场锚点表。
 """
     return prompt.strip()
+
+
+# ─────────────────────────────────────────────
+# System Prompt 加载
+# ─────────────────────────────────────────────
+
+def _load_system_prompt() -> str:
+    """从同目录的 大宗商品分析.markdown 加载 system prompt"""
+    prompt_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "大宗商品分析.markdown")
+    try:
+        with open(prompt_path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        print(f"  [警告] 找不到 system prompt 文件: {prompt_path}，将使用空 system prompt")
+        return ""
 
 
 # ─────────────────────────────────────────────
 # Anthropic API 调用（方案二）
 # ─────────────────────────────────────────────
 
-def call_claude_api(prompt: str) -> str:
+def call_claude_api(prompt: str, system_prompt: str = "") -> str:
     """
     直接调用 Anthropic Claude API 获取分析结果。
     使用 ANTHROPIC_BASE_URL / ANTHROPIC_API_KEY / ANTHROPIC_MODEL 配置。
@@ -863,19 +916,16 @@ def call_claude_api(prompt: str) -> str:
         api_key=ANTHROPIC_API_KEY,
         http_client=httpx.Client(verify=False, timeout=120.0),
     )
+    kwargs = dict(
+        model=ANTHROPIC_MODEL,
+        max_tokens=8096,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    if system_prompt:
+        kwargs["system"] = system_prompt
     for attempt in range(3):
         try:
-            message = client.messages.create(
-                model=ANTHROPIC_MODEL,
-                max_tokens=8096,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt,
-                    }
-                ],
-            )
-            # 提取文本内容
+            message = client.messages.create(**kwargs)
             result = ""
             for block in message.content:
                 if hasattr(block, "text"):
@@ -890,7 +940,7 @@ def call_claude_api(prompt: str) -> str:
                 raise
 
 
-def call_deepseek_api(prompt: str, model: str) -> str:
+def call_deepseek_api(prompt: str, model: str, system_prompt: str = "") -> str:
     """
     通过 OpenAI 兼容接口调用 DeepSeek API，含3次重试逻辑。
     支持 deepseek-reasoner（R1）和 deepseek-chat。
@@ -898,12 +948,17 @@ def call_deepseek_api(prompt: str, model: str) -> str:
     print(f"\n正在调用 DeepSeek API（模型: {model}）...")
     client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
 
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+
     for attempt in range(3):
         try:
             response = client.chat.completions.create(
                 model=model,
                 max_tokens=4000,
-                messages=[{"role": "user", "content": prompt}],
+                messages=messages,
             )
             raw = response.choices[0].message.content or ""
             # 去除 DeepSeek R1 的 <think>...</think> 推理过程
@@ -918,7 +973,7 @@ def call_deepseek_api(prompt: str, model: str) -> str:
     return ""
 
 
-def call_openai_api(prompt: str, model: str) -> str:
+def call_openai_api(prompt: str, model: str, system_prompt: str = "") -> str:
     """
     通过聚合平台（openai-proxy.org）调用 GPT 系列模型。
     使用与 Claude 相同的 API Key，base_url 为 /v1 兼容接口。
@@ -928,12 +983,16 @@ def call_openai_api(prompt: str, model: str) -> str:
     import time
     print(f"\n正在调用 OpenAI API（模型: {model}，via 聚合平台）...")
     client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
     for attempt in range(3):
         try:
             response = client.chat.completions.create(
                 model=model,
                 max_tokens=4000,
-                messages=[{"role": "user", "content": prompt}],
+                messages=messages,
             )
             return response.choices[0].message.content or ""
         except Exception as e:
@@ -943,15 +1002,52 @@ def call_openai_api(prompt: str, model: str) -> str:
     return ""
 
 
-def _call_any_model(prompt: str, model: str) -> str:
+def call_gemini_api(prompt: str, model: str, system_prompt: str = "") -> str:
+    """通过 CloseAI 代理调用 Gemini 系列模型（google.genai 原生协议）"""
+    import time
+    print(f"\n正在调用 Gemini API（模型: {model}，via CloseAI 代理）...")
+    try:
+        from google import genai
+        from google.genai import types
+    except ImportError:
+        print("  [错误] google-genai 未安装，请运行: pip install google-genai")
+        return ""
+    client = genai.Client(
+        api_key=ANTHROPIC_API_KEY,
+        http_options={"base_url": GEMINI_BASE_URL},
+    )
+    for attempt in range(3):
+        try:
+            config = types.GenerateContentConfig(max_output_tokens=8000)
+            if system_prompt:
+                config = types.GenerateContentConfig(
+                    max_output_tokens=8000,
+                    system_instruction=system_prompt,
+                )
+            resp = client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=config,
+            )
+            return resp.text or ""
+        except Exception as e:
+            print(f"  第 {attempt + 1} 次调用失败: {e}")
+            if attempt < 2:
+                time.sleep(5)
+    return ""
+
+
+def _call_any_model(prompt: str, model: str, system_prompt: str = "") -> str:
     """统一模型路由：根据 model 名称自动分发到对应 API"""
     if model in DEEPSEEK_MODELS:
-        return call_deepseek_api(prompt, model)
+        return call_deepseek_api(prompt, model, system_prompt=system_prompt)
+    elif model in GEMINI_MODELS:
+        return call_gemini_api(prompt, model, system_prompt=system_prompt)
     elif model in OPENAI_MODELS:
-        return call_openai_api(prompt, model)
+        return call_openai_api(prompt, model, system_prompt=system_prompt)
     else:
         # Claude 系列（含 claude-sonnet / opus / haiku）
-        return call_claude_api(prompt)
+        return call_claude_api(prompt, system_prompt=system_prompt)
 
 
 # ─────────────────────────────────────────────
@@ -1010,9 +1106,10 @@ def extract_asset_signal(parsed: dict, asset: str = "GOLD") -> dict | None:
 def call_dual_model_api(
     prompt: str,
     asset_name: str = "GOLD",
-    screener_model: str = "deepseek-reasoner",
+    screener_model: str = "deepseek-v4-pro",
     confirm_model: str = None,
     bias_threshold: float = 0.55,
+    system_prompt: str = "",
 ) -> str:
     """
     双模型交叉验证：
@@ -1024,11 +1121,11 @@ def call_dual_model_api(
     import json as _json
 
     if confirm_model is None:
-        confirm_model = ANTHROPIC_MODEL
+        confirm_model = "gemini-2.5-pro"
 
     # ── Step 1: 初筛 ──
     print(f"\n[双模型] Step 1 初筛 ({screener_model})...")
-    screener_resp   = _call_any_model(prompt, screener_model)
+    screener_resp   = _call_any_model(prompt, screener_model, system_prompt=system_prompt)
     screener_parsed = parse_signal(screener_resp)
     screener_signal = extract_asset_signal(screener_parsed, asset_name)
 
@@ -1045,7 +1142,7 @@ def call_dual_model_api(
 
     # ── Step 2: 确认 ──
     print(f"  [双模型] 初筛: {screener_action} (bias={screener_bias:.2f}) → 触发确认模型 ({confirm_model})...")
-    confirm_resp   = _call_any_model(prompt, confirm_model)
+    confirm_resp   = _call_any_model(prompt, confirm_model, system_prompt=system_prompt)
     confirm_parsed = parse_signal(confirm_resp)
     confirm_signal = extract_asset_signal(confirm_parsed, asset_name)
 
@@ -1092,6 +1189,7 @@ def call_voting_model_api(
     models: list = None,
     bias_threshold: float = 0.55,
     prefer_model: str = None,
+    system_prompt: str = "",
 ) -> str:
     """
     多模型投票（推荐三模型）：
@@ -1104,7 +1202,7 @@ def call_voting_model_api(
     from collections import Counter
 
     if models is None:
-        models = ["deepseek-reasoner", ANTHROPIC_MODEL, "gpt-4o"]
+        models = ["deepseek-v4-pro", ANTHROPIC_MODEL, "gemini-2.5-pro"]
     if prefer_model is None:
         prefer_model = ANTHROPIC_MODEL
 
@@ -1113,7 +1211,7 @@ def call_voting_model_api(
     votes = []  # (model, action, bias, parsed, raw_resp)
     for model in models:
         print(f"\n[投票] 调用 {model}...")
-        resp   = _call_any_model(prompt, model)
+        resp   = _call_any_model(prompt, model, system_prompt=system_prompt)
         parsed = parse_signal(resp)
         signal = extract_asset_signal(parsed, asset_name)
         if signal:
@@ -1423,6 +1521,37 @@ def execute_trade(signal: dict, dry_run: bool = True, max_usdt: float = 50.0):
 
 
 # ─────────────────────────────────────────────
+# Python 预过滤（节省 API 调用费用）
+# ─────────────────────────────────────────────
+
+def _python_pre_filter(weekly: pd.DataFrame) -> str | None:
+    """
+    硬性技术过滤：在 LLM 调用前执行，阻断必然无效的信号。
+    返回 None = 通过；返回字符串 = 过滤原因（打印后跳过 API 调用）。
+
+    当前规则：
+    - 死叉（EMA50 < EMA200）+ 价格 < 周线 EMA200 → 确认熊市结构，禁止做多，无需 LLM
+
+    注意：不调用 compute_indicators()（避免与 build_prompt 重复计算所有指标）。
+    只直接用 pandas EWM 计算两条均线，够用且高效。
+    """
+    try:
+        close_w    = weekly["Close"].squeeze().dropna()
+        current_px = float(close_w.iloc[-1])
+        ema50_w    = float(close_w.ewm(span=50,  adjust=False).mean().iloc[-1])
+        ema200_w   = float(close_w.ewm(span=200, adjust=False).mean().iloc[-1])
+
+        if ema50_w < ema200_w and current_px < ema200_w:
+            return (
+                f"[Python预过滤] 死叉(EMA50={ema50_w:.2f} < EMA200={ema200_w:.2f}) "
+                f"+ 价格({current_px:.2f}) < EMA200 → 确认熊市结构，跳过 LLM 调用，强制 no_trade"
+            )
+    except Exception as e:
+        print(f"  [预过滤] 计算异常（{e}），跳过预过滤继续 LLM 调用")
+    return None
+
+
+# ─────────────────────────────────────────────
 # 主程序
 # ─────────────────────────────────────────────
 
@@ -1445,10 +1574,10 @@ def main():
     )
     parser.add_argument("--dual-model",         action="store_true",
                         help="启用双模型交叉验证（初筛+确认，分歧时强制 no_trade）")
-    parser.add_argument("--screener-model",      default="deepseek-reasoner",
-                        help="初筛/第一模型（默认: deepseek-reasoner）")
-    parser.add_argument("--confirm-model",       default=ANTHROPIC_MODEL,
-                        help=f"确认/第二模型（默认: {ANTHROPIC_MODEL}）")
+    parser.add_argument("--screener-model",      default="deepseek-v4-pro",
+                        help="初筛/第一模型（默认: deepseek-v4-pro）")
+    parser.add_argument("--confirm-model",       default="gemini-2.5-pro",
+                        help="确认/第二模型（默认: gemini-pro）")
     parser.add_argument("--third-model",         default=None,
                         help="第三模型，启用后自动切换为三模型投票制（例: gpt-4o）")
     parser.add_argument("--prefer-model",        default=ANTHROPIC_MODEL,
@@ -1491,6 +1620,7 @@ def main():
         print("\n未找到回测指标文件，将生成不含性能反馈的提示词")
 
     prompt = build_prompt(daily, weekly, monthly, perf_metrics=perf_metrics, macro=macro, paxg=paxg)
+    system_prompt = _load_system_prompt()
 
     # ── 方案一：保存提示词文件（默认）──
     os.makedirs("outputs", exist_ok=True)
@@ -1500,8 +1630,51 @@ def main():
     print(f"\n提示词已保存到文件: {output_path}")
 
     if args.api:
+        # ── Python 预过滤（死叉 + 价格 < EMA200 直接跳过）──
+        pre_filter_reason = _python_pre_filter(weekly)
+        if pre_filter_reason:
+            print(f"\n{pre_filter_reason}")
+            import json as _json
+            analysis = _json.dumps({
+                "period": "Weekly",
+                "asset_ticker": "GOLD",
+                "overall_market_sentiment": "Risk-Off",
+                "dxy_assessment": "N/A (pre-filter triggered, LLM not called)",
+                "rate_environment": "N/A (pre-filter triggered, LLM not called)",
+                "asset_analysis": [{
+                    "asset": "GOLD",
+                    "regime": "Trending-Down",
+                    "action": "no_trade",
+                    "bias_score": 0.0,
+                    "entry_zone": "N/A",
+                    "profit_target": None,
+                    "stop_loss": None,
+                    "risk_reward_ratio": None,
+                    "estimated_holding_weeks": None,
+                    "position_size_pct": 0.0,
+                    "invalidation_condition": "N/A",
+                    "price_action_analysis": {
+                        "trend_structure": pre_filter_reason,
+                        "momentum_signals": "N/A",
+                        "volatility_context": "N/A",
+                        "volume_obv": "N/A",
+                    },
+                    "macro_analysis": {
+                        "dxy_impact": "N/A",
+                        "rate_impact": "N/A",
+                        "safe_haven_demand": "N/A",
+                        "regime_justification": pre_filter_reason,
+                    },
+                    "intelligence_analysis": {
+                        "macro_catalyst": "N/A",
+                        "central_bank_demand": "N/A",
+                        "seasonal_pattern": "N/A",
+                    },
+                    "justification": pre_filter_reason,
+                }],
+            }, ensure_ascii=False, indent=2)
         # ── 直接调用 API ──
-        if args.dual_model and args.third_model:
+        elif args.dual_model and args.third_model:
             # 三模型投票
             analysis = call_voting_model_api(
                 prompt,
@@ -1509,6 +1682,7 @@ def main():
                 models=[args.screener_model, args.confirm_model, args.third_model],
                 bias_threshold=args.dual_bias_threshold,
                 prefer_model=args.prefer_model,
+                system_prompt=system_prompt,
             )
         elif args.dual_model:
             # 双模型交叉验证
@@ -1518,10 +1692,11 @@ def main():
                 screener_model=args.screener_model,
                 confirm_model=args.confirm_model,
                 bias_threshold=args.dual_bias_threshold,
+                system_prompt=system_prompt,
             )
         else:
             model = args.model
-            analysis = _call_any_model(prompt, model)
+            analysis = _call_any_model(prompt, model, system_prompt=system_prompt)
 
         api_output_path = "outputs/gold_api_output.txt"
         with open(api_output_path, "w", encoding="utf-8") as f:

@@ -45,7 +45,9 @@ DEEPSEEK_API_KEY  = os.environ.get("DEEPSEEK_API_KEY", "sk-9574b3366dfd41178a549
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 
 CLAUDE_MODELS   = {"claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"}
-DEEPSEEK_MODELS = {"deepseek-reasoner", "deepseek-chat"}
+DEEPSEEK_MODELS = {"deepseek-reasoner", "deepseek-chat", "deepseek-v4-pro", "deepseek-v4-flash"}
+GEMINI_MODELS   = {"gemini-2.5-pro", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-1.5-pro"}
+GEMINI_BASE_URL = os.getenv("GEMINI_BASE_URL", "https://api.openai-proxy.org/google")
 OPENAI_MODELS   = {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "o1", "o3-mini"}
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai-proxy.org/v1")
 OPENAI_API_KEY  = os.getenv("OPENAI_API_KEY", ANTHROPIC_API_KEY)
@@ -1122,9 +1124,41 @@ def call_openai_api(prompt: str, model: str) -> str:
     return ""
 
 
+def call_gemini_api(prompt: str, model: str) -> str:
+    """通过 CloseAI 代理调用 Gemini 系列模型（google.genai 原生协议）"""
+    import time
+    print(f"\n正在调用 Gemini API（模型: {model}，via CloseAI 代理）...")
+    try:
+        from google import genai
+        from google.genai import types
+    except ImportError:
+        print("  [错误] google-genai 未安装，请运行: pip install google-genai")
+        return ""
+    client = genai.Client(
+        api_key=ANTHROPIC_API_KEY,
+        http_options={"base_url": GEMINI_BASE_URL},
+    )
+    for attempt in range(3):
+        try:
+            config = types.GenerateContentConfig(max_output_tokens=8000)
+            resp = client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=config,
+            )
+            return resp.text or ""
+        except Exception as e:
+            print(f"  第 {attempt + 1} 次调用失败: {e}")
+            if attempt < 2:
+                time.sleep(5)
+    return ""
+
+
 def _call_any_model(prompt: str, model: str) -> str:
     if model in DEEPSEEK_MODELS:
         return call_deepseek_api(prompt, model)
+    elif model in GEMINI_MODELS:
+        return call_gemini_api(prompt, model)
     elif model in OPENAI_MODELS:
         return call_openai_api(prompt, model)
     else:
@@ -1149,7 +1183,7 @@ def _force_no_trade(parsed: dict, raw_resp: str, asset_name: str, reason: str) -
 def call_dual_model_api(
     prompt: str,
     asset_name: str = "BTC",
-    screener_model: str = "deepseek-reasoner",
+    screener_model: str = "deepseek-v4-pro",
     confirm_model: str = None,
     bias_threshold: float = 0.55,
 ) -> str:
@@ -1157,7 +1191,7 @@ def call_dual_model_api(
     import json as _json
 
     if confirm_model is None:
-        confirm_model = ANTHROPIC_MODEL
+        confirm_model = "gemini-2.5-pro"
 
     print(f"\n[双模型] Step 1 初筛 ({screener_model})...")
     screener_resp   = _call_any_model(prompt, screener_model)
@@ -1211,7 +1245,7 @@ def call_voting_model_api(
     from collections import Counter
 
     if models is None:
-        models = ["deepseek-reasoner", ANTHROPIC_MODEL, "gpt-4o"]
+        models = ["deepseek-v4-pro", ANTHROPIC_MODEL, "gemini-2.5-pro"]
     if prefer_model is None:
         prefer_model = ANTHROPIC_MODEL
 
@@ -1282,10 +1316,10 @@ def main():
                         ))
     parser.add_argument("--dual-model",         action="store_true",
                         help="启用双模型交叉验证（初筛+确认，分歧时强制 no_trade）")
-    parser.add_argument("--screener-model",      default="deepseek-reasoner",
-                        help="初筛/第一模型（默认: deepseek-reasoner）")
-    parser.add_argument("--confirm-model",       default=ANTHROPIC_MODEL,
-                        help=f"确认/第二模型（默认: {ANTHROPIC_MODEL}）")
+    parser.add_argument("--screener-model",      default="deepseek-v4-pro",
+                        help="初筛/第一模型（默认: deepseek-v4-pro）")
+    parser.add_argument("--confirm-model",       default="gemini-2.5-pro",
+                        help="确认/第二模型（默认: gemini-pro）")
     parser.add_argument("--third-model",         default=None,
                         help="第三模型，启用后切换为三模型投票制（例: gpt-4o）")
     parser.add_argument("--prefer-model",        default=ANTHROPIC_MODEL,

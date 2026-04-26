@@ -49,7 +49,7 @@ DEEPSEEK_API_KEY  = os.environ.get("DEEPSEEK_API_KEY", "sk-9574b3366dfd41178a549
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 
 CLAUDE_MODELS   = {"claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"}
-DEEPSEEK_MODELS = {"deepseek-reasoner", "deepseek-chat"}
+DEEPSEEK_MODELS = {"deepseek-reasoner", "deepseek-chat", "deepseek-v4-pro", "deepseek-v4-flash"}
 
 SCAN_OUTPUT_FILE = "market_scan_output.json"
 SCAN_REPORT_FILE = "market_scan_report.txt"
