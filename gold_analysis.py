@@ -320,26 +320,61 @@ def fetch_gold_data():
     ticker = "GC=F"
     print(f"正在获取黄金期货数据 ({ticker})...")
 
-    session = _make_session()
+    CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data_cache")
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    CACHE_MAX_AGE_HOURS = 36
+
+    def _cache_path(interval: str) -> str:
+        safe_ticker = ticker.replace("=", "_").replace("^", "_")
+        return os.path.join(CACHE_DIR, f"{safe_ticker}_{interval}.parquet")
+
+    def _load_cache(interval: str):
+        path = _cache_path(interval)
+        if not os.path.exists(path):
+            return None
+        age_hours = (datetime.now().timestamp() - os.path.getmtime(path)) / 3600
+        if age_hours <= CACHE_MAX_AGE_HOURS:
+            print(f"[缓存兜底] GC=F {interval}: 使用 {age_hours:.1f}h 前的缓存数据")
+            return pd.read_parquet(path)
+        return None
+
+    def _save_cache(df, interval: str):
+        try:
+            df.to_parquet(_cache_path(interval))
+        except Exception:
+            pass  # 写缓存失败不影响正常流程
+
+    def _download(interval: str, period: str, comment: str):
+        """尝试 yf.download；失败时兜底读取 Parquet 缓存。"""
+        session = _make_session()
+        df = None
+        try:
+            df = yf.download(
+                ticker, period=period, interval=interval,
+                auto_adjust=True, progress=False, session=session
+            )
+        except Exception:
+            df = None
+
+        if df is not None and not df.empty:
+            _save_cache(df, interval)
+            return df
+
+        # 主下载失败，尝试缓存
+        cached = _load_cache(interval)
+        if cached is not None:
+            return cached
+
+        raise ValueError(
+            f"GC=F {interval} 数据获取失败（网络异常且无有效缓存，缓存超过 {CACHE_MAX_AGE_HOURS}h 或不存在）"
+        )
 
     # 日线：3个月（仅用于近期动量参考及当前价格）
-    daily = yf.download(
-        ticker, period="3mo", interval="1d",
-        auto_adjust=True, progress=False, session=session
-    )
+    daily = _download("1d", "3mo", "日线")
     # 周线：5年（主分析时间框架；EMA200 需要至少 200 根周线收敛，5y ≈ 260 根）
-    weekly = yf.download(
-        ticker, period="5y", interval="1wk",
-        auto_adjust=True, progress=False, session=session
-    )
+    weekly = _download("1wk", "5y", "周线")
     # 月线：5年（长期趋势背景）
-    monthly = yf.download(
-        ticker, period="5y", interval="1mo",
-        auto_adjust=True, progress=False, session=session
-    )
-
-    if daily.empty or weekly.empty or monthly.empty:
-        raise ValueError("数据获取失败，请检查网络或 ticker 是否正确")
+    monthly = _download("1mo", "5y", "月线")
 
     print(f"日线数据：{len(daily)} 条  |  周线数据：{len(weekly)} 条  |  月线数据：{len(monthly)} 条")
     return daily, weekly, monthly

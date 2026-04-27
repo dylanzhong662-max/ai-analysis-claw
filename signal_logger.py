@@ -18,7 +18,7 @@ import csv
 import json
 import os
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 SIGNAL_LOG = Path("live_signal_log.csv")
@@ -138,6 +138,14 @@ def log_signals(tickers: list[str] | None = None, dry_run: bool = False,
             continue
 
         fpath = Path(fname)
+
+        # 文件新鲜度校验：拒绝超过 20 小时的旧文件，防止分析失败时读取昨天遗留的信号
+        if fpath.exists():
+            age_hours = (datetime.now() - datetime.fromtimestamp(fpath.stat().st_mtime)).total_seconds() / 3600
+            if age_hours > 20:
+                print(f"  [跳过] {ticker}：{fname} 文件已有 {age_hours:.1f} 小时，非本次运行结果，跳过")
+                continue
+
         signals = _parse_output_file(fpath)
         if not signals:
             print(f"  [跳过] {ticker}：{fname} 解析失败或为空")

@@ -17,12 +17,13 @@ import pandas as pd
 import numpy as np
 import urllib3
 import os
+import time
 import argparse
 import httpx
 from anthropic import Anthropic
 from openai import OpenAI
 from curl_cffi import requests as curl_requests
-from datetime import datetime
+from datetime import datetime, timedelta
 
 try:
     from news_signal_bridge import fetch_news_signals, format_news_signals_section
@@ -288,25 +289,77 @@ def fetch_stock_data(ticker: str):
       - 日线 3 个月：用于精确入场定时
       - 周线 2 年：主分析时间框架，识别中线信号
       - 月线 5 年：长期趋势背景
+
+    缓存兜底：yf.download 失败时自动读取 data_cache/{ticker}_{interval}.parquet，
+    36 小时以内的缓存视为有效；超时或文件不存在则 raise ValueError。
     """
+    CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data_cache")
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    CACHE_MAX_AGE = timedelta(hours=36)
+
+    def _load_cache(interval: str):
+        """尝试读取缓存文件，返回 DataFrame 或 None。"""
+        path = os.path.join(CACHE_DIR, f"{ticker}_{interval}.parquet")
+        if not os.path.exists(path):
+            return None
+        age = timedelta(seconds=time.time() - os.path.getmtime(path))
+        if age <= CACHE_MAX_AGE:
+            age_hours = age.total_seconds() / 3600
+            print(f"[缓存兜底] {ticker} {interval}: 使用 {age_hours:.1f}h 前的缓存数据")
+            return pd.read_parquet(path)
+        return None
+
+    def _save_cache(df, interval: str):
+        """将 DataFrame 写入缓存文件。"""
+        if df is not None and not df.empty:
+            path = os.path.join(CACHE_DIR, f"{ticker}_{interval}.parquet")
+            df.to_parquet(path)
+
     session = _make_session()
     print(f"正在获取 {ticker} 股价数据...")
 
-    daily = yf.download(
-        ticker, period="3mo", interval="1d",
-        auto_adjust=True, progress=False, session=session
-    )
-    weekly = yf.download(
-        ticker, period="2y", interval="1wk",
-        auto_adjust=True, progress=False, session=session
-    )
-    monthly = yf.download(
-        ticker, period="5y", interval="1mo",
-        auto_adjust=True, progress=False, session=session
-    )
+    # ── 日线 ──────────────────────────────────────────────
+    try:
+        daily = yf.download(
+            ticker, period="3mo", interval="1d",
+            auto_adjust=True, progress=False, session=session
+        )
+        if daily.empty:
+            raise ValueError("返回空 DataFrame")
+        _save_cache(daily, "1d")
+    except Exception:
+        daily = _load_cache("1d")
+        if daily is None:
+            raise ValueError(f"无法获取 {ticker} 日线数据，且无有效缓存（>36h 或不存在）")
 
-    if daily.empty or weekly.empty:
-        raise ValueError(f"无法获取 {ticker} 数据，请检查 ticker 或网络连接")
+    # ── 周线 ──────────────────────────────────────────────
+    try:
+        weekly = yf.download(
+            ticker, period="2y", interval="1wk",
+            auto_adjust=True, progress=False, session=session
+        )
+        if weekly.empty:
+            raise ValueError("返回空 DataFrame")
+        _save_cache(weekly, "1wk")
+    except Exception:
+        weekly = _load_cache("1wk")
+        if weekly is None:
+            raise ValueError(f"无法获取 {ticker} 周线数据，且无有效缓存（>36h 或不存在）")
+
+    # ── 月线 ──────────────────────────────────────────────
+    try:
+        monthly = yf.download(
+            ticker, period="5y", interval="1mo",
+            auto_adjust=True, progress=False, session=session
+        )
+        if monthly.empty:
+            raise ValueError("返回空 DataFrame")
+        _save_cache(monthly, "1mo")
+    except Exception:
+        monthly = _load_cache("1mo")
+        if monthly is None:
+            # 月线非必须字段，降级为空 DataFrame 而非中断（pd 已在顶层 import）
+            monthly = pd.DataFrame()
 
     print(f"  日线: {len(daily)} 条 | 周线: {len(weekly)} 条 | 月线: {len(monthly)} 条")
     return daily, weekly, monthly
@@ -1823,26 +1876,34 @@ def _python_pre_filter(
 
     拦截规则（硬拦截，直接 no_trade）：
     1. 财报 ≤ 5 天：二元事件风险
-    2. 个股周线死叉（EMA50 < EMA200）且价格低于 EMA200：确认下跌趋势
+    2. 个股周线死叉（EMA50 < EMA200）且价格低于 EMA200 × 0.98（缓冲带 2%）：确认下跌趋势
+       — 缓冲带设计：价格在 EMA200 ±2% 内属于震荡区间（whipsaw 高发），
+         允许 LLM 正常分析，避免 V 形反转中频繁触发/解除导致踏空。
+         只有价格明确跌破 EMA200 的 2% 以下，才判定为确认性熊市趋势。
 
     注：QQQ 死叉改为软限制（bias 上限 0.55 + 仓位上限 0.2），不再硬拦截。
     """
+    # EMA200 缓冲带（2%）：减少 whipsaw，允许价格在 EMA200 附近震荡时继续分析
+    EMA200_BUFFER = 0.02
+
     # 1. 财报 ≤ 5 天
     days = intel.get("earnings_days_away")
     if days is not None and 0 <= int(days) <= 5:
         return f"财报仅 {days} 天后（{intel.get('earnings_date', '')}），二元事件风险，强制 no_trade"
 
-    # 2. 个股死叉 + 价格低于 EMA200
+    # 2. 个股死叉 + 价格明确低于 EMA200（需跌破 2% 缓冲带）
     if not weekly.empty and "Close" in weekly.columns and not daily.empty and "Close" in daily.columns:
         wc = weekly["Close"].squeeze().dropna()
         if len(wc) >= 200:
             w_e50  = float(calc_ema(wc, 50).dropna().iloc[-1])
             w_e200 = float(calc_ema(wc, 200).dropna().iloc[-1])
             curr   = float(daily["Close"].squeeze().dropna().iloc[-1])
-            if w_e50 < w_e200 and curr < w_e200:
+            bear_threshold = w_e200 * (1 - EMA200_BUFFER)
+            if w_e50 < w_e200 and curr < bear_threshold:
                 return (
                     f"个股死叉（EMA50={w_e50:.1f} < EMA200={w_e200:.1f}）"
-                    f"且价格={curr:.1f} < EMA200，确认下跌趋势，跳过 LLM"
+                    f"且价格={curr:.1f} < EMA200×{1-EMA200_BUFFER:.2f}（{bear_threshold:.1f}），"
+                    f"确认下跌趋势，跳过 LLM"
                 )
 
     return None

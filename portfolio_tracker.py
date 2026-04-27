@@ -501,7 +501,10 @@ def evaluate_overlay(
     result["realized_vol_annual"]= round(realized_vol, 4)
     result["high_52w"]           = round(high_52w, 2)           if high_52w  else None
 
-    above_ema200 = ema200 is not None and current_price > ema200
+    # EMA200 缓冲带（2%）：减少 V 形反转时的 whipsaw，
+    # 价格需跌破 EMA200 的 2% 以下才判定为确认性熊市，避免震荡区间频繁触发/解除
+    EMA200_BUFFER = 0.02
+    above_ema200 = ema200 is not None and current_price > ema200 * (1 - EMA200_BUFFER)
     above_ema50  = ema50  is not None and current_price > ema50
     result["above_ema200"] = above_ema200
     result["above_ema50"]  = above_ema50
@@ -510,10 +513,10 @@ def evaluate_overlay(
     drawdown = (high_52w - current_price) / high_52w if high_52w and high_52w > 0 else 0.0
     result["drawdown_from_high"] = round(drawdown, 4)
 
-    # BTC 额外检查 200WMA
+    # BTC 额外检查 200WMA（BTC 波动大，同样加 2% 缓冲）
     btc_wma_ok = True
     if asset_key == "BTC" and wma200 is not None:
-        btc_wma_ok = current_price > wma200
+        btc_wma_ok = current_price > wma200 * (1 - EMA200_BUFFER)
 
     # 快速出场：EMA50 跌破 OR 回撤超限
     fast_exit = (not above_ema50) or (drawdown > DRAWDOWN_EXIT_PCT)
@@ -533,9 +536,10 @@ def evaluate_overlay(
         target_pct = 0.0
         parts = []
         if not above_ema200:
-            parts.append(f"价格{current_price:.2f} < EMA200({round(ema200,2) if ema200 else 'N/A'})")
+            bear_threshold = round(ema200 * (1 - EMA200_BUFFER), 2) if ema200 else 'N/A'
+            parts.append(f"价格{current_price:.2f} < EMA200×{1-EMA200_BUFFER:.2f}（{bear_threshold}）")
         if not btc_wma_ok:
-            parts.append(f"BTC价格 < 200WMA({round(wma200,2)})")
+            parts.append(f"BTC价格 < 200WMA×{1-EMA200_BUFFER:.2f}（{round(wma200*(1-EMA200_BUFFER),2)}）")
         exit_reason = "熊市制度 — " + " & ".join(parts)
     elif fast_exit:
         target_pct = 0.0
